@@ -1,0 +1,35 @@
+{
+  "name": "onuw",
+  "version": "2.0.0",
+  "description": "One Night Ultimate Werewolf - Multiplayer Game Engine with AI Agents",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "ts-node src/index.ts",
+    "server": "ts-node src/server.ts"
+  },
+  "keywords": [
+    "onuw",
+    "werewolf",
+    "game",
+    "ai",
+    "multiplayer",
+    "websocket",
+    "design-patterns"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.0",
+    "@types/uuid": "^9.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}
