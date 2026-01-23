@@ -447,7 +447,8 @@ export class GameServerFacade {
     }
 
     try {
-      const room = this.roomManager.createRoom(session.playerId, message.config);
+      // Pass debug options if provided
+      const room = this.roomManager.createRoom(session.playerId, message.config, message.debug);
 
       // Add host to room
       room.addPlayer(session.playerId, session.playerName, connection);
@@ -589,6 +590,9 @@ export class GameServerFacade {
    *
    * @private
    */
+  /** Counter for AI player IDs */
+  private aiPlayerCounter: number = 0;
+
   private handleAddAI(
     connection: IClientConnection,
     message: Extract<ClientMessage, { type: 'addAI' }>
@@ -609,9 +613,34 @@ export class GameServerFacade {
       return;
     }
 
-    // Note: AI players need a dummy connection - this would need to be implemented
-    // For now, this is a placeholder
-    this.sendError(connection, ErrorCodes.INTERNAL_ERROR, 'AI players not yet implemented in facade');
+    try {
+      // Create a dummy connection for AI players
+      const aiId = `ai-${++this.aiPlayerCounter}`;
+      const aiNames = ['Bot Alice', 'Bot Bob', 'Bot Charlie', 'Bot Diana', 'Bot Eve', 'Bot Frank'];
+      const aiName = message.aiName || aiNames[this.aiPlayerCounter % aiNames.length];
+
+      const nullConnection: IClientConnection = {
+        id: aiId,
+        type: 'local',
+        state: 'connected',
+        send: () => {},
+        close: () => {},
+        isConnected: () => true,
+        onMessage: () => () => {},
+        onDisconnect: () => () => {},
+        onError: () => () => {},
+        getLatency: () => 0,
+        getConnectedAt: () => Date.now()
+      };
+
+      room.addPlayer(aiId, aiName, nullConnection, true);
+    } catch (error) {
+      this.sendError(
+        connection,
+        ErrorCodes.ROOM_FULL,
+        error instanceof Error ? error.message : 'Failed to add AI'
+      );
+    }
   }
 
   /**

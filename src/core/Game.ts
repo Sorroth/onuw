@@ -205,6 +205,10 @@ export class Game implements IGameContext, INightActionGameState {
   /**
    * @summary Sets up the game by dealing roles.
    *
+   * @description
+   * Creates roles and deals them to players. Supports debug mode
+   * where specific players can be forced to receive specific roles.
+   *
    * @private
    */
   private setupGame(): void {
@@ -213,6 +217,19 @@ export class Game implements IGameContext, INightActionGameState {
 
     // Shuffle roles
     this.shuffleArray(roles);
+
+    // Handle forced roles for debug mode
+    if (this.config.forcedRoles && this.config.forcedRoles.size > 0) {
+      for (const [playerIndex, forcedRoleName] of this.config.forcedRoles) {
+        // Find a role matching the forced role name
+        const forcedRoleIndex = roles.findIndex(r => r.name === forcedRoleName);
+        if (forcedRoleIndex !== -1 && playerIndex < this.config.players.length) {
+          // Swap the forced role into the player's position
+          [roles[playerIndex], roles[forcedRoleIndex]] = [roles[forcedRoleIndex], roles[playerIndex]];
+          console.log(`Debug: Forced player ${playerIndex} to have role ${forcedRoleName}`);
+        }
+      }
+    }
 
     // Deal to players
     for (let i = 0; i < this.config.players.length; i++) {
@@ -479,13 +496,20 @@ export class Game implements IGameContext, INightActionGameState {
       const player = this.players.get(playerId)!;
       const agent = this.agents.get(playerId)!;
 
+      // Build player names map
+      const playerNames = new Map<string, string>();
+      for (const [pid, p] of this.players) {
+        playerNames.set(pid, p.name);
+      }
+
       const context: DayContext = {
         myPlayerId: playerId,
         myStartingRole: player.startingRole.name,
         myNightInfo: (this.nightResults.get(playerId) || [])[0] || null,
         statements: [...this.statements],
         rolesInGame: this.config.roles,
-        allPlayerIds: this.playerOrder
+        allPlayerIds: this.playerOrder,
+        playerNames
       };
 
       const statement = await agent.makeStatement(context);
@@ -817,6 +841,36 @@ export class Game implements IGameContext, INightActionGameState {
   }
 
   /**
+   * @summary Gets all night action results from all players.
+   *
+   * @description
+   * Returns all night actions in the order they were executed.
+   * Used for building post-game summaries.
+   *
+   * @returns {NightActionResult[]} All night results
+   */
+  getAllNightResults(): NightActionResult[] {
+    return Array.from(this.nightResults.values()).flat();
+  }
+
+  /**
+   * @summary Gets all players' starting roles.
+   *
+   * @description
+   * Returns a map of player IDs to their starting role names.
+   * Used for building post-game summaries.
+   *
+   * @returns {Map<string, RoleName>} Map of player ID to starting role
+   */
+  getStartingRoles(): Map<string, RoleName> {
+    const roles = new Map<string, RoleName>();
+    for (const [playerId, player] of this.players) {
+      roles.set(playerId, player.startingRole.name);
+    }
+    return roles;
+  }
+
+  /**
    * @summary Checks if a player is currently connected.
    *
    * @param {string} playerId - Player ID
@@ -888,6 +942,21 @@ export class Game implements IGameContext, INightActionGameState {
       throw new Error(`Player ${playerId} not found`);
     }
     return player.startingRole.name;
+  }
+
+  /**
+   * @summary Gets a player's starting team.
+   *
+   * @param {string} playerId - Player ID
+   *
+   * @returns {Team} The player's starting team
+   */
+  getStartingRoleTeam(playerId: string): Team {
+    const player = this.players.get(playerId);
+    if (!player) {
+      throw new Error(`Player ${playerId} not found`);
+    }
+    return player.getStartingTeam();
   }
 
   /**

@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One Night Ultimate Werewolf</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #e4e4e4;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #e94560;
+      margin-bottom: 30px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+
+    h2 {
+      color: #e94560;
+      margin-bottom: 15px;
+    }
+
+    .screen {
+      display: none;
+    }
+
+    .screen.active {
+      display: block;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 25px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    input, button, select {
+      font-size: 16px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      border: none;
+      margin: 5px;
+    }
+
+    input, select {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      width: calc(100% - 10px);
+    }
+
+    select {
+      background: #2d2d3a;
+      cursor: pointer;
+    }
+
+    select option {
+      background: #2d2d3a;
+      color: #fff;
+      padding: 8px;
+    }
+
+    select option:hover,
+    select option:checked {
+      background: #4a4a5a;
+    }
+
+    input::placeholder {
+      color: rgba(255,255,255,0.5);
+    }
+
+    button {
+      background: #e94560;
+      color: white;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: bold;
+    }
+
+    button:hover {
+      background: #ff6b6b;
+      transform: translateY(-2px);
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    button.secondary {
+      background: #0f3460;
+    }
+
+    button.secondary:hover {
+      background: #1a4a7a;
+    }
+
+    button.ready {
+      background: #2ecc71;
+    }
+
+    button.ready:hover {
+      background: #27ae60;
+    }
+
+    .player-list {
+      list-style: none;
+    }
+
+    .player-list li {
+      padding: 12px 15px;
+      margin: 8px 0;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .player-list li.ready {
+      border-left: 4px solid #2ecc71;
+    }
+
+    .player-list li.host {
+      border-left: 4px solid #f1c40f;
+    }
+
+    .player-list li.you {
+      background: rgba(233, 69, 96, 0.3);
+    }
+
+    .status {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .status.ready {
+      background: #2ecc71;
+    }
+
+    .status.waiting {
+      background: #e67e22;
+    }
+
+    .status.host {
+      background: #f1c40f;
+      color: #333;
+    }
+
+    .role-card {
+      text-align: center;
+      padding: 40px;
+      background: linear-gradient(145deg, #2a2a4a, #1a1a2e);
+      border-radius: 16px;
+      margin: 20px 0;
+    }
+
+    .role-name {
+      font-size: 32px;
+      font-weight: bold;
+      color: #e94560;
+      margin-bottom: 10px;
+    }
+
+    .role-team {
+      font-size: 18px;
+      color: #888;
+    }
+
+    .role-team.VILLAGE { color: #3498db; }
+    .role-team.WEREWOLF { color: #e74c3c; }
+    .role-team.TANNER { color: #9b59b6; }
+
+    .night-info {
+      background: rgba(0,0,0,0.3);
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+    }
+
+    .log {
+      background: rgba(0,0,0,0.3);
+      padding: 15px;
+      border-radius: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 14px;
+    }
+
+    .log-entry {
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .action-btn {
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .voting-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .vote-btn {
+      padding: 20px;
+      text-align: center;
+    }
+
+    .connection-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .connection-status.connected {
+      background: #2ecc71;
+    }
+
+    .connection-status.disconnected {
+      background: #e74c3c;
+    }
+
+    .connection-status.connecting {
+      background: #f39c12;
+    }
+
+    .room-code {
+      font-size: 36px;
+      font-weight: bold;
+      text-align: center;
+      letter-spacing: 8px;
+      color: #e94560;
+      margin: 20px 0;
+    }
+
+    .statements {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .statement {
+      padding: 12px;
+      margin: 8px 0;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+    }
+
+    .statement-player {
+      font-weight: bold;
+      color: #e94560;
+    }
+
+    .results {
+      text-align: center;
+    }
+
+    .winner {
+      font-size: 28px;
+      font-weight: bold;
+      margin: 20px 0;
+    }
+
+    .winner.VILLAGE { color: #3498db; }
+    .winner.WEREWOLF { color: #e74c3c; }
+    .winner.TANNER { color: #9b59b6; }
+
+    .final-roles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .final-role {
+      padding: 15px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .final-role.eliminated {
+      border: 2px solid #e74c3c;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 10px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      .room-code {
+        font-size: 28px;
+        letter-spacing: 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="connection-status disconnected" id="connectionStatus">Disconnected</div>
+
+  <div class="container">
+    <h1>One Night Ultimate Werewolf</h1>
+
+    <!-- Connect Screen -->
+    <div class="screen active" id="connectScreen">
+      <div class="card">
+        <h2>Connect to Server</h2>
+        <input type="text" id="serverUrl" value="ws://localhost:8080" placeholder="Server URL">
+        <input type="text" id="playerName" placeholder="Your Name" maxlength="20">
+        <button onclick="connect()">Connect</button>
+      </div>
+    </div>
+
+    <!-- Lobby Screen -->
+    <div class="screen" id="lobbyScreen">
+      <div class="card">
+        <h2>Game Lobby</h2>
+        <div class="actions">
+          <button onclick="showCreateRoom()" class="action-btn">Create Room</button>
+          <button onclick="showJoinRoom()" class="action-btn secondary">Join Room</button>
+        </div>
+      </div>
+
+      <div class="card hidden" id="createRoomPanel">
+        <h2>Create Room</h2>
+        <label>Max Players: <select id="maxPlayers">
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5" selected>5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+        </select></label>
+        <div style="margin: 15px 0;">
+          <strong>Roles:</strong>
+          <div id="roleSelection" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px;">
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="WEREWOLF" checked style="width: auto; margin: 0;"> Werewolf</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="WEREWOLF" checked style="width: auto; margin: 0;"> Werewolf 2</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="SEER" checked style="width: auto; margin: 0;"> Seer</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="ROBBER" checked style="width: auto; margin: 0;"> Robber</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="TROUBLEMAKER" checked style="width: auto; margin: 0;"> Troublemaker</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="DRUNK" checked style="width: auto; margin: 0;"> Drunk</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="VILLAGER" checked style="width: auto; margin: 0;"> Villager</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="VILLAGER" checked style="width: auto; margin: 0;"> Villager 2</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="INSOMNIAC" style="width: auto; margin: 0;"> Insomniac</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="MASON" style="width: auto; margin: 0;"> Mason</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="MASON" style="width: auto; margin: 0;"> Mason 2</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="MINION" style="width: auto; margin: 0;"> Minion</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="HUNTER" style="width: auto; margin: 0;"> Hunter</label>
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="TANNER" style="width: auto; margin: 0;"> Tanner</label>
+          </div>
+        </div>
+
+        <!-- Debug Mode -->
+        <div style="margin: 15px 0; padding: 15px; background: #2a1a3a; border: 1px solid #a78bfa; border-radius: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px; color: #a78bfa;">
+            <input type="checkbox" id="debugMode" style="width: auto; margin: 0;" onchange="toggleDebugRoleSelect()">
+            <strong>Debug Mode</strong> (Choose your starting role + capture game state)
+          </label>
+          <div id="debugRoleSelectContainer" style="display: none; margin-top: 10px;">
+            <label style="color: #ddd;">Your Role:
+              <select id="debugRoleSelect" style="margin-left: 10px;">
+                <option value="">Random</option>
+                <option value="WEREWOLF">Werewolf</option>
+                <option value="SEER">Seer</option>
+                <option value="ROBBER">Robber</option>
+                <option value="TROUBLEMAKER">Troublemaker</option>
+                <option value="DRUNK">Drunk</option>
+                <option value="VILLAGER">Villager</option>
+                <option value="INSOMNIAC">Insomniac</option>
+                <option value="MASON">Mason</option>
+                <option value="MINION">Minion</option>
+                <option value="HUNTER">Hunter</option>
+                <option value="TANNER">Tanner</option>
+              </select>
+            </label>
+            <div style="margin-top: 8px; font-size: 12px; color: #888;">
+              Note: Selected role must be included in the roles above
+            </div>
+            <div style="margin-top: 10px; font-size: 12px; color: #a78bfa;">
+              Debug mode captures all screen text. After game ends, use these to export:
+            </div>
+            <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px;">
+              <button onclick="copyTextSummary()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Copy Text Summary</button>
+              <button onclick="copyDebugStateToClipboard()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Copy Full JSON</button>
+              <button onclick="exportDebugState()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Download JSON</button>
+            </div>
+          </div>
+        </div>
+
+        <button onclick="createRoom()">Create Room</button>
+      </div>
+
+      <div class="card hidden" id="joinRoomPanel">
+        <h2>Join Room</h2>
+        <input type="text" id="roomCodeInput" placeholder="Room Code" maxlength="6" style="text-transform: uppercase;">
+        <button onclick="joinRoom()">Join</button>
+      </div>
+    </div>
+
+    <!-- Room Screen -->
+    <div class="screen" id="roomScreen">
+      <div class="card">
+        <h2>Room</h2>
+        <div class="room-code" id="roomCode">XXXX</div>
+        <ul class="player-list" id="playerList"></ul>
+        <p id="startInfo" style="margin: 10px 0; color: #f39c12; font-size: 14px;"></p>
+        <div class="actions">
+          <button id="readyBtn" onclick="toggleReady()" class="action-btn">Ready</button>
+          <button id="addAIBtn" onclick="addAI()" class="action-btn secondary hidden">Add AI Player</button>
+          <button id="startBtn" onclick="startGame()" class="action-btn hidden">Start Game</button>
+          <button onclick="leaveRoom()" class="action-btn secondary">Leave</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div class="screen" id="gameScreen">
+      <div class="card">
+        <h2>Your Role</h2>
+        <div class="role-card">
+          <div class="role-name" id="yourRole">???</div>
+          <div class="role-team" id="yourTeam">Unknown Team</div>
+        </div>
+      </div>
+
+      <div class="card" id="nightInfoCard">
+        <h2>Night Information</h2>
+        <div id="nightInfo"></div>
+      </div>
+
+      <div class="card" id="actionCard" class="hidden">
+        <h2 id="actionTitle">Action Required</h2>
+        <p id="actionDescription"></p>
+        <div id="actionOptions" class="actions"></div>
+      </div>
+
+      <div class="card" id="dayCard" class="hidden">
+        <h2>Day Discussion</h2>
+        <div class="statements" id="statements"></div>
+        <div id="statementInput" class="hidden">
+          <input type="text" id="statementText" placeholder="Make your statement...">
+          <button onclick="makeStatement()">Submit Statement</button>
+        </div>
+      </div>
+
+      <div class="card" id="votingCard" class="hidden">
+        <h2>Voting</h2>
+        <p>Choose who to eliminate:</p>
+        <div class="voting-grid" id="votingOptions"></div>
+      </div>
+
+      <div class="card">
+        <h2>Game Log</h2>
+        <div class="log" id="gameLog"></div>
+      </div>
+    </div>
+
+    <!-- Results Screen -->
+    <div class="screen" id="resultsScreen">
+      <div class="card results">
+        <h2>Game Over</h2>
+        <div class="winner" id="winnerTeam">Village Wins!</div>
+        <div class="final-roles" id="finalRoles"></div>
+        <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+          <button onclick="backToLobby()">Back to Lobby</button>
+          <button onclick="copyDebugStateToClipboard()" class="secondary" id="debugExportBtn" style="display: none;">Copy Debug State</button>
+        </div>
+      </div>
+
+      <!-- Game Summary Section -->
+      <div class="card" id="gameSummary" style="margin-top: 20px; text-align: left;">
+        <h3 style="margin-bottom: 15px; color: #a78bfa;">Game Summary</h3>
+
+        <div id="summaryStartingRoles" style="margin-bottom: 20px;">
+          <h4 style="color: #60a5fa; margin-bottom: 10px;">Starting Roles</h4>
+          <div id="startingRolesList"></div>
+        </div>
+
+        <div id="summaryNightActions" style="margin-bottom: 20px;">
+          <h4 style="color: #f472b6; margin-bottom: 10px;">Night Actions</h4>
+          <div id="nightActionsList"></div>
+        </div>
+
+        <div id="summaryStatements" style="margin-bottom: 20px;">
+          <h4 style="color: #4ade80; margin-bottom: 10px;">Day Phase Statements</h4>
+          <div id="statementsList"></div>
+        </div>
+
+        <div id="summaryVotes">
+          <h4 style="color: #f59e0b; margin-bottom: 10px;">Final Votes</h4>
+          <div id="votesList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let ws = null;
+    let playerId = null;
+    let playerName = null;
+    let currentRoom = null;
+    let isReady = false;
+    let isHost = false;
+    let currentRequest = null;
+    let gameIdMapping = null; // Maps game IDs (player-1) to room IDs (player-abc123)
+
+    // Debug state capture
+    let debugState = {
+      screens: [],
+      messages: [],
+      actions: [],
+      screenCaptures: [] // Captures all text shown to player
+    };
+
+    // Helper functions
+    function $(id) { return document.getElementById(id); }
+
+    function showScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      $(screenId).classList.add('active');
+    }
+
+    function setConnectionStatus(status) {
+      const el = $('connectionStatus');
+      el.className = 'connection-status ' + status;
+      el.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    }
+
+    function log(message) {
+      const logEl = $('gameLog');
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function send(message) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        message.timestamp = Date.now();
+        ws.send(JSON.stringify(message));
+        console.log('Sent:', message);
+      } else {
+        console.error('Cannot send - WebSocket not open. State:', ws?.readyState);
+        alert('Not connected to server. Please reconnect.');
+      }
+    }
+
+    // Connection
+    function connect() {
+      const url = $('serverUrl').value;
+      playerName = $('playerName').value.trim() || 'Player';
+      playerId = 'player-' + Math.random().toString(36).substr(2, 9);
+
+      setConnectionStatus('connecting');
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        setConnectionStatus('connected');
+        send({
+          type: 'authenticate',
+          playerId: playerId,
+          playerName: playerName
+        });
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          console.log('Received:', msg);
+          handleMessage(msg);
+        } catch (e) {
+          console.error('Failed to parse message:', event.data, e);
+        }
+      };
+
+      ws.onclose = () => {
+        setConnectionStatus('disconnected');
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        setConnectionStatus('disconnected');
+      };
+    }
+
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'authenticated':
+          showScreen('lobbyScreen');
+          break;
+
+        case 'roomCreated':
+        case 'roomJoined':
+          currentRoom = msg.state;
+          updateRoomDisplay();
+          showScreen('roomScreen');
+          break;
+
+        case 'roomUpdate':
+          currentRoom = msg.state;
+          updateRoomDisplay();
+          break;
+
+        case 'gameStarted':
+          showScreen('gameScreen');
+          // Reset debug state for new game
+          debugState.screenCaptures = [];
+          debugState.messages = [];
+          debugState.actions = [];
+
+          // Store the game ID to room ID mapping
+          if (msg.playerIdMapping) {
+            gameIdMapping = msg.playerIdMapping;
+            console.log('Stored player ID mapping:', gameIdMapping);
+          }
+          if (msg.view) {
+            $('yourRole').textContent = msg.view.myStartingRole || '???';
+            // Determine team from role
+            const role = msg.view.myStartingRole;
+            let team = 'VILLAGE';
+            if (role === 'WEREWOLF' || role === 'MINION') team = 'WEREWOLF';
+            if (role === 'TANNER') team = 'TANNER';
+            $('yourTeam').textContent = team + ' Team';
+            $('yourTeam').className = 'role-team ' + team;
+            log('Game started! You are the ' + role);
+          }
+          // Capture debug state
+          captureDebugState('gameStarted', msg);
+          break;
+
+        case 'gameState':
+          updateGameState(msg.view);
+          break;
+
+        case 'nightResult':
+          displayNightResult(msg.result);
+          captureDebugState('nightResult', msg.result);
+          break;
+
+        case 'actionRequired':
+          showActionRequired(msg.request);
+          captureDebugState('actionRequired', msg.request);
+          break;
+
+        case 'phaseChanged':
+          log('Phase changed to: ' + msg.phase);
+          handlePhaseChange(msg.phase);
+          break;
+
+        case 'statementMade':
+          addStatement(msg.playerId, msg.playerName, msg.statement);
+          break;
+
+        case 'voteRequired':
+          showVoting(msg.eligibleTargets);
+          break;
+
+        case 'gameEnded':
+          showResults(msg);
+          captureDebugState('gameEnded', msg);
+          break;
+
+        case 'error':
+          alert('Error: ' + msg.message);
+          log('Error: ' + msg.message);
+          break;
+
+        case 'ping':
+          send({ type: 'pong' });
+          break;
+
+        case 'gameEnd':
+          showResults(msg);
+          captureDebugState('gameEnd', msg);
+          break;
+
+        default:
+          console.log('Unknown message type:', msg.type);
+      }
+    }
+
+    // Lobby functions
+    function showCreateRoom() {
+      $('createRoomPanel').classList.remove('hidden');
+      $('joinRoomPanel').classList.add('hidden');
+    }
+
+    function showJoinRoom() {
+      $('joinRoomPanel').classList.remove('hidden');
+      $('createRoomPanel').classList.add('hidden');
+    }
+
+    function getSelectedRoles() {
+      const checkboxes = $('roleSelection').querySelectorAll('input:checked');
+      return Array.from(checkboxes).map(cb => cb.value);
+    }
+
+    function toggleDebugRoleSelect() {
+      const debugMode = $('debugMode').checked;
+      $('debugRoleSelectContainer').style.display = debugMode ? 'block' : 'none';
+    }
+
+    function createRoom() {
+      const roles = getSelectedRoles();
+      const maxPlayers = parseInt($('maxPlayers').value);
+
+      console.log('Creating room with', maxPlayers, 'players and roles:', roles);
+
+      if (roles.length < maxPlayers + 3) {
+        alert(`Need at least ${maxPlayers + 3} roles for ${maxPlayers} players (3 go to center). You selected ${roles.length} roles.`);
+        return;
+      }
+
+      // Check debug mode
+      const debugMode = $('debugMode').checked;
+      const debugRole = debugMode ? $('debugRoleSelect').value : null;
+
+      // Validate debug role is in selected roles
+      if (debugRole && !roles.includes(debugRole)) {
+        alert(`Debug role "${debugRole}" must be included in the selected roles.`);
+        return;
+      }
+
+      const msg = {
+        type: 'createRoom',
+        config: {
+          maxPlayers: maxPlayers,
+          minPlayers: 3,
+          roles: roles,
+          discussionTimeSeconds: 300,
+          votingTimeSeconds: 60
+        }
+      };
+
+      // Add debug info if enabled
+      if (debugRole) {
+        msg.debug = {
+          forceRole: debugRole
+        };
+        console.log('Debug mode: forcing role', debugRole);
+      }
+
+      console.log('Sending:', msg);
+      send(msg);
+    }
+
+    function joinRoom() {
+      const code = $('roomCodeInput').value.toUpperCase().trim();
+      if (code.length !== 6) {
+        alert('Room code must be 6 characters');
+        return;
+      }
+      send({ type: 'joinRoom', roomCode: code });
+    }
+
+    // Room functions
+    function updateRoomDisplay() {
+      if (!currentRoom) return;
+
+      $('roomCode').textContent = currentRoom.roomCode;
+
+      const list = $('playerList');
+      list.innerHTML = '';
+
+      currentRoom.players.forEach(p => {
+        const li = document.createElement('li');
+        li.className = '';
+        if (p.isReady) li.classList.add('ready');
+        if (p.isHost) li.classList.add('host');
+        if (p.id === playerId) li.classList.add('you');
+
+        let status = '';
+        if (p.isHost) status = '<span class="status host">Host</span> ';
+        if (p.isReady) status += '<span class="status ready">Ready</span>';
+        else status += '<span class="status waiting">Waiting</span>';
+        if (p.isAI) status += ' <span class="status">AI</span>';
+
+        li.innerHTML = `<span>${p.name}${p.id === playerId ? ' (You)' : ''}</span><span>${status}</span>`;
+        list.appendChild(li);
+
+        if (p.id === playerId) {
+          isHost = p.isHost;
+          isReady = p.isReady;
+        }
+      });
+
+      $('readyBtn').textContent = isReady ? 'Not Ready' : 'Ready';
+      $('readyBtn').className = isReady ? 'action-btn secondary' : 'action-btn ready';
+
+      if (isHost) {
+        $('startBtn').classList.remove('hidden');
+        $('addAIBtn').classList.remove('hidden');
+        const allReady = currentRoom.players.every(p => p.isReady || p.isHost);
+        const enoughPlayers = currentRoom.players.length >= currentRoom.config.minPlayers;
+        $('startBtn').disabled = !allReady || !enoughPlayers;
+
+        // Show why button is disabled
+        const info = $('startInfo');
+        if (!enoughPlayers) {
+          info.textContent = `Need ${currentRoom.config.minPlayers - currentRoom.players.length} more player(s) to start. Add AI or invite friends!`;
+        } else if (!allReady) {
+          info.textContent = 'Waiting for all players to be ready...';
+        } else {
+          info.textContent = 'Ready to start!';
+          info.style.color = '#2ecc71';
+        }
+      } else {
+        $('startBtn').classList.add('hidden');
+        $('addAIBtn').classList.add('hidden');
+        $('startInfo').textContent = '';
+      }
+    }
+
+    function toggleReady() {
+      isReady = !isReady;
+      send({ type: 'setReady', ready: isReady });
+    }
+
+    function startGame() {
+      send({ type: 'startGame' });
+    }
+
+    function leaveRoom() {
+      send({ type: 'leaveRoom' });
+      currentRoom = null;
+      showScreen('lobbyScreen');
+    }
+
+    function addAI() {
+      send({ type: 'addAI' });
+    }
+
+    // Game functions
+    function updateGameState(view) {
+      if (view.yourRole) {
+        $('yourRole').textContent = view.yourRole;
+        $('yourTeam').textContent = view.yourTeam || 'Unknown';
+        $('yourTeam').className = 'role-team ' + (view.yourTeam || '');
+      }
+
+      if (view.phase) {
+        handlePhaseChange(view.phase);
+      }
+
+      if (view.nightInfo && view.nightInfo.length > 0) {
+        view.nightInfo.forEach(info => displayNightResult(info));
+      }
+    }
+
+    function displayNightResult(result) {
+      const container = $('nightInfo');
+      const div = document.createElement('div');
+      div.className = 'night-info';
+
+      let text = `As ${result.roleName}: `;
+      const info = result.info || {};
+
+      // Handle different role results based on the actual data structure
+      switch (result.roleName) {
+        case 'WEREWOLF':
+          if (info.werewolves && info.werewolves.length > 0) {
+            const names = info.werewolves.map(id => getPlayerName(id)).join(', ');
+            text += `Saw fellow Werewolf(s): ${names}`;
+          } else if (info.viewed && info.viewed.length > 0) {
+            const card = info.viewed[0];
+            text += `Lone wolf - peeked at center card ${card.centerIndex + 1}: ${card.role}`;
+          } else {
+            text += 'Woke up (no other Werewolves)';
+          }
+          break;
+
+        case 'SEER':
+          if (info.viewed && info.viewed.length > 0) {
+            if (info.viewed[0].playerId) {
+              const name = getPlayerName(info.viewed[0].playerId);
+              text += `Viewed ${name}'s card: ${info.viewed[0].role}`;
+            } else {
+              const cards = info.viewed.map(v => `Card ${v.centerIndex + 1} = ${v.role}`).join(', ');
+              text += `Viewed center cards: ${cards}`;
+            }
+          }
+          break;
+
+        case 'ROBBER':
+          if (info.swapped && info.viewed && info.viewed.length > 0) {
+            const targetName = getPlayerName(info.swapped.to.playerId);
+            text += `Robbed ${targetName} and became ${info.viewed[0].role}`;
+          }
+          break;
+
+        case 'TROUBLEMAKER':
+          if (info.swapped && info.swapped.players) {
+            const name1 = getPlayerName(info.swapped.players[0]);
+            const name2 = getPlayerName(info.swapped.players[1]);
+            text += `Swapped ${name1} and ${name2}'s cards`;
+          } else if (info.swappedPlayers) {
+            const name1 = getPlayerName(info.swappedPlayers[0]);
+            const name2 = getPlayerName(info.swappedPlayers[1]);
+            text += `Swapped ${name1} and ${name2}'s cards`;
+          }
+          break;
+
+        case 'DRUNK':
+          if (info.swapped && info.swapped.to && info.swapped.to.centerIndex !== undefined) {
+            text += `Swapped with center card ${info.swapped.to.centerIndex + 1}`;
+          } else if (info.centerIndex !== undefined) {
+            text += `Swapped with center card ${info.centerIndex + 1}`;
+          }
+          break;
+
+        case 'INSOMNIAC':
+          if (info.viewed && info.viewed.length > 0) {
+            text += `Checked your card: still ${info.viewed[0].role}`;
+          } else if (info.currentRole) {
+            text += `Checked your card: still ${info.currentRole}`;
+          }
+          break;
+
+        case 'MINION':
+          if (info.werewolves && info.werewolves.length > 0) {
+            const names = info.werewolves.map(id => getPlayerName(id)).join(', ');
+            text += `Saw Werewolf(s): ${names}`;
+          } else {
+            text += 'No Werewolves among players';
+          }
+          break;
+
+        case 'MASON':
+          if (info.otherMasons && info.otherMasons.length > 0) {
+            const names = info.otherMasons.map(id => getPlayerName(id)).join(', ');
+            text += `Saw fellow Mason(s): ${names}`;
+          } else {
+            text += 'No other Masons';
+          }
+          break;
+
+        default:
+          // Fallback for any unhandled roles
+          if (info.viewed) {
+            text += JSON.stringify(info.viewed);
+          } else {
+            text += 'No action';
+          }
+      }
+
+      div.textContent = text;
+      div.style.cssText = 'padding: 10px; background: rgba(255,255,255,0.1); border-radius: 8px; margin: 5px 0;';
+      container.appendChild(div);
+      log(text);
+
+      // Capture screen after night info is displayed
+      setTimeout(() => captureScreenText('nightInfo_displayed'), 10);
+    }
+
+    // Helper to get player name from ID (handles both game IDs and room IDs)
+    function getPlayerName(id) {
+      if (!id) return 'Unknown';
+
+      // First, try to resolve game ID to room ID using the mapping
+      let roomId = id;
+      if (gameIdMapping && gameIdMapping[id]) {
+        roomId = gameIdMapping[id];
+      }
+
+      // Now look up the player name using the room ID
+      if (currentRoom && currentRoom.players) {
+        const player = currentRoom.players.find(p => p.id === roomId);
+        if (player) return player.name;
+      }
+
+      // Fallback: return the original ID
+      return id;
+    }
+
+    function showActionRequired(request) {
+      currentRequest = request;
+      const card = $('actionCard');
+      card.classList.remove('hidden');
+
+      $('actionTitle').textContent = request.reason || 'Action Required';
+      $('actionDescription').textContent = `Action: ${request.actionType}`;
+
+      // Capture screen after UI is updated (use setTimeout to let DOM update)
+      setTimeout(() => captureScreenText('actionRequired_UI_' + request.actionType), 10);
+
+      const options = $('actionOptions');
+      options.innerHTML = '';
+
+      if (request.actionType === 'selectPlayer' && request.options) {
+        // Single player selection (Seer, Robber, etc.)
+        request.options.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.textContent = getPlayerName(opt); // Show name, send ID
+          btn.onclick = () => respondToAction(opt);
+          options.appendChild(btn);
+        });
+      } else if (request.actionType === 'selectTwoPlayers' && request.options) {
+        // Two player selection (Troublemaker)
+        const selected = [];
+        const hint = document.createElement('p');
+        hint.textContent = 'Select 2 players to swap:';
+        hint.style.marginBottom = '10px';
+        options.appendChild(hint);
+
+        request.options.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.textContent = getPlayerName(opt); // Show name, send ID
+          btn.onclick = () => {
+            if (selected.includes(opt)) {
+              // Deselect
+              selected.splice(selected.indexOf(opt), 1);
+              btn.style.background = '';
+            } else if (selected.length < 2) {
+              // Select
+              selected.push(opt);
+              btn.style.background = '#4a9eff';
+            }
+            // If 2 selected, send response
+            if (selected.length === 2) {
+              respondToAction(selected);
+            }
+          };
+          options.appendChild(btn);
+        });
+      } else if (request.actionType === 'selectCenter') {
+        // Single center card selection
+        for (let i = 0; i < 3; i++) {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.textContent = `Center ${i + 1}`;
+          btn.onclick = () => respondToAction(i);
+          options.appendChild(btn);
+        }
+      } else if (request.actionType === 'selectTwoCenter') {
+        // Two center card selection (Seer center option)
+        const selected = [];
+        const hint = document.createElement('p');
+        hint.textContent = 'Select 2 center cards:';
+        hint.style.marginBottom = '10px';
+        options.appendChild(hint);
+
+        for (let i = 0; i < 3; i++) {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.textContent = `Center ${i + 1}`;
+          btn.onclick = () => {
+            if (selected.includes(i)) {
+              selected.splice(selected.indexOf(i), 1);
+              btn.style.background = '';
+            } else if (selected.length < 2) {
+              selected.push(i);
+              btn.style.background = '#4a9eff';
+            }
+            if (selected.length === 2) {
+              respondToAction(selected);
+            }
+          };
+          options.appendChild(btn);
+        }
+      } else if (request.actionType === 'seerChoice') {
+        const playerBtn = document.createElement('button');
+        playerBtn.className = 'action-btn';
+        playerBtn.textContent = 'View Player Card';
+        playerBtn.onclick = () => respondToAction('player');
+        options.appendChild(playerBtn);
+
+        const centerBtn = document.createElement('button');
+        centerBtn.className = 'action-btn';
+        centerBtn.textContent = 'View 2 Center Cards';
+        centerBtn.onclick = () => respondToAction('center');
+        options.appendChild(centerBtn);
+      } else if (request.actionType === 'statement') {
+        // Day phase - make a statement
+        const textarea = document.createElement('textarea');
+        textarea.placeholder = 'Make your statement (what role are you claiming?)...';
+        textarea.style.cssText = 'width: 100%; height: 80px; margin-bottom: 10px; padding: 8px; border-radius: 4px; border: 1px solid #555; background: #2a2a2a; color: #fff; resize: none;';
+        options.appendChild(textarea);
+
+        const submitBtn = document.createElement('button');
+        submitBtn.className = 'action-btn';
+        submitBtn.textContent = 'Submit Statement';
+        submitBtn.onclick = () => {
+          const statement = textarea.value.trim() || 'I have nothing to say.';
+          respondToAction(statement);
+        };
+        options.appendChild(submitBtn);
+      } else if (request.actionType === 'vote') {
+        // Voting phase - vote for a player
+        const hint = document.createElement('p');
+        hint.textContent = 'Vote for who to eliminate:';
+        hint.style.marginBottom = '10px';
+        options.appendChild(hint);
+
+        (request.eligibleTargets || request.options || []).forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.textContent = getPlayerName(opt);
+          btn.onclick = () => respondToAction(opt);
+          options.appendChild(btn);
+        });
+      } else if (request.options) {
+        // Generic fallback for unknown action types with options
+        request.options.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.textContent = opt;
+          btn.onclick = () => respondToAction(opt);
+          options.appendChild(btn);
+        });
+      }
+    }
+
+    function respondToAction(response) {
+      if (!currentRequest) return;
+
+      // Capture action for debug
+      captureActionResponse(currentRequest.actionType, response);
+
+      send({
+        type: 'actionResponse',
+        requestId: currentRequest.requestId,
+        response: response
+      });
+
+      $('actionCard').classList.add('hidden');
+      const actionType = currentRequest.actionType;
+      currentRequest = null;
+
+      // More user-friendly log messages
+      if (actionType === 'selectCenter') {
+        log('Selected center card ' + (response + 1));
+      } else if (actionType === 'vote') {
+        log('Voted for ' + getPlayerName(response));
+      } else if (actionType === 'statement') {
+        log('Made statement: "' + response + '"');
+      } else if (actionType === 'selectPlayer') {
+        log('Selected player: ' + getPlayerName(response));
+      } else if (actionType === 'selectTwoPlayers') {
+        log('Selected players: ' + response.map(id => getPlayerName(id)).join(' and '));
+      } else {
+        log('Responded: ' + JSON.stringify(response));
+      }
+    }
+
+    function handlePhaseChange(phase) {
+      $('actionCard').classList.add('hidden');
+      $('dayCard').classList.add('hidden');
+      $('votingCard').classList.add('hidden');
+
+      if (phase === 'DAY') {
+        $('dayCard').classList.remove('hidden');
+      } else if (phase === 'VOTING') {
+        $('votingCard').classList.remove('hidden');
+      }
+    }
+
+    function addStatement(pId, pName, statement) {
+      const container = $('statements');
+      const div = document.createElement('div');
+      div.className = 'statement';
+      div.innerHTML = `<span class="statement-player">${pName}:</span> ${statement}`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      log(`${pName}: ${statement}`);
+    }
+
+    function makeStatement() {
+      const text = $('statementText').value.trim();
+      if (!text) return;
+
+      send({
+        type: 'actionResponse',
+        requestId: currentRequest?.requestId,
+        response: text
+      });
+
+      $('statementText').value = '';
+      $('statementInput').classList.add('hidden');
+    }
+
+    function showVoting(targets) {
+      const container = $('votingOptions');
+      container.innerHTML = '';
+
+      targets.forEach(target => {
+        const btn = document.createElement('button');
+        btn.className = 'vote-btn';
+        btn.textContent = target.name || target;
+        btn.onclick = () => {
+          send({
+            type: 'actionResponse',
+            requestId: currentRequest?.requestId,
+            response: target.id || target
+          });
+          container.querySelectorAll('button').forEach(b => b.disabled = true);
+          btn.style.background = '#e94560';
+          log('Voted for: ' + (target.name || target));
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function showResults(msg) {
+      showScreen('resultsScreen');
+      log('Game ended!');
+
+      // Show debug export button if debug mode was enabled
+      const debugExportBtn = $('debugExportBtn');
+      if (debugExportBtn && $('debugMode')?.checked) {
+        debugExportBtn.style.display = 'inline-block';
+      }
+
+      const result = msg.result || {};
+      const winningTeams = result.winningTeams || [];
+      const eliminatedPlayers = result.eliminatedPlayers || [];
+      const winningPlayers = result.winningPlayers || [];
+
+      const winnerEl = $('winnerTeam');
+      winnerEl.textContent = `${winningTeams.join(' & ') || 'Unknown'} Wins!`;
+      winnerEl.className = 'winner ' + (winningTeams[0]?.toLowerCase() || '');
+
+      const rolesEl = $('finalRoles');
+      rolesEl.innerHTML = '';
+
+      // Show eliminated players section
+      if (eliminatedPlayers.length > 0) {
+        const elimDiv = document.createElement('div');
+        elimDiv.style.cssText = 'margin-bottom: 15px; color: #e94560;';
+        const eliminatedNames = eliminatedPlayers.map(id => getPlayerName(id));
+        elimDiv.innerHTML = `<strong>Eliminated:</strong> ${eliminatedNames.join(', ')}`;
+        rolesEl.appendChild(elimDiv);
+      } else {
+        const noElimDiv = document.createElement('div');
+        noElimDiv.style.cssText = 'margin-bottom: 15px; color: #4ade80;';
+        noElimDiv.innerHTML = '<strong>No one was eliminated!</strong>';
+        rolesEl.appendChild(noElimDiv);
+      }
+
+      // Show final roles
+      if (msg.finalRoles) {
+        const rolesHeader = document.createElement('div');
+        rolesHeader.style.cssText = 'margin: 15px 0 10px; font-weight: bold;';
+        rolesHeader.textContent = 'Final Roles:';
+        rolesEl.appendChild(rolesHeader);
+
+        Object.entries(msg.finalRoles).forEach(([pId, role]) => {
+          const div = document.createElement('div');
+          div.className = 'final-role';
+          const isEliminated = eliminatedPlayers.includes(pId);
+          const isWinner = winningPlayers.includes(pId);
+          if (isEliminated) {
+            div.classList.add('eliminated');
+          }
+          let status = '';
+          if (isEliminated) status = ' (Eliminated)';
+          else if (isWinner) status = ' (Winner!)';
+          const playerDisplayName = getPlayerName(pId);
+          div.innerHTML = `<strong>${playerDisplayName}</strong>: ${role}${status}`;
+          div.style.cssText = 'padding: 5px 0; border-bottom: 1px solid #333;';
+          if (isWinner) div.style.color = '#4ade80';
+          if (isEliminated) div.style.color = '#e94560';
+          rolesEl.appendChild(div);
+        });
+      }
+
+      // Show game summary
+      if (msg.summary) {
+        displayGameSummary(msg.summary);
+      }
+
+      // Capture the results screen after it's fully rendered
+      setTimeout(() => captureScreenText('resultsScreen_rendered'), 50);
+    }
+
+    function displayGameSummary(summary) {
+      // Display starting roles
+      const startingRolesList = $('startingRolesList');
+      startingRolesList.innerHTML = '';
+      if (summary.startingRoles) {
+        Object.entries(summary.startingRoles).forEach(([pId, role]) => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding: 4px 0; border-bottom: 1px solid #333;';
+          const playerDisplayName = getPlayerName(pId);
+          div.innerHTML = `<strong>${playerDisplayName}</strong>: ${role}`;
+          startingRolesList.appendChild(div);
+        });
+      }
+
+      // Display night actions
+      const nightActionsList = $('nightActionsList');
+      nightActionsList.innerHTML = '';
+      if (summary.nightActions && summary.nightActions.length > 0) {
+        summary.nightActions.forEach((action, index) => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding: 6px 0; border-bottom: 1px solid #333;';
+          div.innerHTML = `
+            <span style="color: #f472b6; font-weight: bold;">${action.roleName}</span>
+            <span style="color: #888;"> (${action.playerName})</span>
+            <div style="margin-left: 20px; color: #ddd;">${action.description}</div>
+          `;
+          nightActionsList.appendChild(div);
+        });
+      } else {
+        nightActionsList.innerHTML = '<div style="color: #888;">No night actions recorded</div>';
+      }
+
+      // Display statements
+      const statementsList = $('statementsList');
+      statementsList.innerHTML = '';
+      if (summary.statements && summary.statements.length > 0) {
+        summary.statements.forEach(stmt => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding: 6px 0; border-bottom: 1px solid #333;';
+          div.innerHTML = `
+            <strong style="color: #4ade80;">${stmt.playerName || stmt.playerId}</strong>:
+            <span style="color: #ddd;">"${stmt.statement}"</span>
+          `;
+          statementsList.appendChild(div);
+        });
+      } else {
+        statementsList.innerHTML = '<div style="color: #888;">No statements made</div>';
+      }
+
+      // Display votes
+      const votesList = $('votesList');
+      votesList.innerHTML = '';
+      if (summary.votes && Object.keys(summary.votes).length > 0) {
+        Object.entries(summary.votes).forEach(([voter, target]) => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding: 4px 0; border-bottom: 1px solid #333;';
+          div.innerHTML = `<strong>${voter}</strong> voted for <span style="color: #f59e0b;">${target}</span>`;
+          votesList.appendChild(div);
+        });
+      } else {
+        votesList.innerHTML = '<div style="color: #888;">No votes recorded</div>';
+      }
+    }
+
+    function backToLobby() {
+      currentRoom = null;
+      isReady = false;
+      gameIdMapping = null;
+      // Don't reset debug state here - user might want to export after game ends
+      $('nightInfo').innerHTML = '';
+      $('statements').innerHTML = '';
+      $('gameLog').innerHTML = '';
+      showScreen('lobbyScreen');
+    }
+
+    // ========== DEBUG STATE CAPTURE ==========
+
+    /**
+     * Captures ALL visible text on the current screen.
+     * This is the key function for debugging - it records exactly what the player sees.
+     */
+    function captureScreenText(trigger) {
+      const debugMode = $('debugMode')?.checked;
+      if (!debugMode) return;
+
+      const timestamp = new Date().toISOString();
+      const currentScreen = getCurrentScreen();
+
+      // Capture all visible text based on current screen
+      const screenText = {
+        timestamp,
+        trigger, // What caused this capture (e.g., "gameStarted", "actionRequired", etc.)
+        screen: currentScreen,
+        connectionStatus: $('connectionStatus')?.textContent || '',
+        sections: {}
+      };
+
+      // Capture based on which screen is active
+      if (currentScreen === 'connectScreen') {
+        screenText.sections = {
+          title: 'One Night Ultimate Werewolf',
+          header: 'Connect to Server',
+          serverUrl: $('serverUrl')?.value || '',
+          playerNameInput: $('playerName')?.value || ''
+        };
+      }
+      else if (currentScreen === 'lobbyScreen') {
+        screenText.sections = {
+          title: 'One Night Ultimate Werewolf',
+          header: 'Game Lobby',
+          createRoomVisible: !$('createRoomPanel')?.classList.contains('hidden'),
+          joinRoomVisible: !$('joinRoomPanel')?.classList.contains('hidden'),
+          debugModeEnabled: $('debugMode')?.checked || false,
+          selectedRole: $('debugRoleSelect')?.value || 'Random'
+        };
+
+        // Capture role selection if visible
+        if (!$('createRoomPanel')?.classList.contains('hidden')) {
+          const selectedRoles = Array.from($('roleSelection')?.querySelectorAll('input:checked') || [])
+            .map(cb => cb.parentElement?.textContent?.trim());
+          screenText.sections.maxPlayers = $('maxPlayers')?.value;
+          screenText.sections.selectedRoles = selectedRoles;
+        }
+      }
+      else if (currentScreen === 'roomScreen') {
+        screenText.sections = {
+          title: 'One Night Ultimate Werewolf',
+          header: 'Room',
+          roomCode: $('roomCode')?.textContent || '',
+          players: Array.from($('playerList')?.children || []).map(li => li.textContent?.trim()),
+          startInfo: $('startInfo')?.textContent || '',
+          readyButtonText: $('readyBtn')?.textContent || '',
+          startButtonVisible: !$('startBtn')?.classList.contains('hidden'),
+          startButtonDisabled: $('startBtn')?.disabled
+        };
+      }
+      else if (currentScreen === 'gameScreen') {
+        screenText.sections = {
+          title: 'One Night Ultimate Werewolf',
+          yourRole: {
+            header: 'Your Role',
+            roleName: $('yourRole')?.textContent || '',
+            team: $('yourTeam')?.textContent || ''
+          },
+          nightInfo: {
+            header: 'Night Information',
+            content: $('nightInfo')?.innerText || '',
+            visible: !$('nightInfoCard')?.classList.contains('hidden')
+          },
+          actionCard: {
+            visible: !$('actionCard')?.classList.contains('hidden'),
+            title: $('actionTitle')?.textContent || '',
+            description: $('actionDescription')?.textContent || '',
+            options: Array.from($('actionOptions')?.children || []).map(el => {
+              if (el.tagName === 'BUTTON') return { type: 'button', text: el.textContent };
+              if (el.tagName === 'TEXTAREA') return { type: 'textarea', placeholder: el.placeholder };
+              if (el.tagName === 'P') return { type: 'text', text: el.textContent };
+              return { type: el.tagName, text: el.textContent };
+            })
+          },
+          dayCard: {
+            header: 'Day Discussion',
+            visible: !$('dayCard')?.classList.contains('hidden'),
+            statements: Array.from($('statements')?.children || []).map(el => el.textContent?.trim())
+          },
+          votingCard: {
+            header: 'Voting',
+            visible: !$('votingCard')?.classList.contains('hidden'),
+            description: 'Choose who to eliminate:',
+            options: Array.from($('votingOptions')?.children || []).map(el => el.textContent?.trim())
+          },
+          gameLog: {
+            header: 'Game Log',
+            entries: Array.from($('gameLog')?.children || []).map(el => el.textContent?.trim())
+          }
+        };
+      }
+      else if (currentScreen === 'resultsScreen') {
+        screenText.sections = {
+          title: 'One Night Ultimate Werewolf',
+          header: 'Game Over',
+          winner: $('winnerTeam')?.textContent || '',
+          finalRoles: $('finalRoles')?.innerText || '',
+          summary: {
+            startingRoles: $('startingRolesList')?.innerText || '',
+            nightActions: $('nightActionsList')?.innerText || '',
+            statements: $('statementsList')?.innerText || '',
+            votes: $('votesList')?.innerText || ''
+          }
+        };
+      }
+
+      debugState.screenCaptures.push(screenText);
+      console.log('[DEBUG SCREEN]', trigger, screenText);
+      return screenText;
+    }
+
+    function captureDebugState(eventType, data) {
+      const debugMode = $('debugMode')?.checked;
+      if (!debugMode) return;
+
+      const timestamp = new Date().toISOString();
+      const entry = {
+        timestamp,
+        event: eventType,
+        data: JSON.parse(JSON.stringify(data || {})), // Deep clone
+        currentScreen: getCurrentScreen(),
+        gameState: captureCurrentGameState()
+      };
+
+      debugState.messages.push(entry);
+      console.log('[DEBUG]', eventType, entry);
+
+      // Also capture screen text whenever state changes
+      captureScreenText(eventType);
+    }
+
+    function getCurrentScreen() {
+      const screens = ['connectScreen', 'lobbyScreen', 'roomScreen', 'gameScreen', 'resultsScreen'];
+      for (const s of screens) {
+        if ($(s)?.classList.contains('active')) return s;
+      }
+      return 'unknown';
+    }
+
+    function captureCurrentGameState() {
+      return {
+        playerId,
+        playerName,
+        roomCode: currentRoom?.roomCode,
+        players: currentRoom?.players?.map(p => ({
+          id: p.id,
+          name: p.name,
+          isReady: p.isReady,
+          isHost: p.isHost,
+          isAI: p.isAI
+        })),
+        gameIdMapping,
+        yourRole: $('yourRole')?.textContent,
+        yourTeam: $('yourTeam')?.textContent,
+        nightInfo: $('nightInfo')?.innerText,
+        statements: Array.from($('statements')?.children || []).map(el => el.innerText),
+        currentAction: currentRequest?.actionType
+      };
+    }
+
+    function captureActionResponse(actionType, response) {
+      const debugMode = $('debugMode')?.checked;
+      if (!debugMode) return;
+
+      debugState.actions.push({
+        timestamp: new Date().toISOString(),
+        actionType,
+        response,
+        gameState: captureCurrentGameState()
+      });
+    }
+
+    function exportDebugState() {
+      // Capture final screen state
+      captureScreenText('export_triggered');
+
+      const dump = {
+        exportedAt: new Date().toISOString(),
+        sessionInfo: {
+          playerId,
+          playerName,
+          serverUrl: $('serverUrl')?.value
+        },
+        room: currentRoom,
+        gameIdMapping,
+        // Screen captures show exactly what the player saw (most important for debugging)
+        screenCaptures: debugState.screenCaptures,
+        // Raw messages and actions for technical debugging
+        messages: debugState.messages,
+        actions: debugState.actions,
+        finalGameState: captureCurrentGameState()
+      };
+
+      // Create downloadable JSON
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `onuw-debug-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      console.log('Debug state exported:', dump);
+      return dump;
+    }
+
+    function copyDebugStateToClipboard() {
+      // Capture final screen state
+      captureScreenText('clipboard_export_triggered');
+
+      const dump = {
+        exportedAt: new Date().toISOString(),
+        sessionInfo: {
+          playerId,
+          playerName,
+          serverUrl: $('serverUrl')?.value
+        },
+        room: currentRoom,
+        gameIdMapping,
+        // Screen captures show exactly what the player saw (most important for debugging)
+        screenCaptures: debugState.screenCaptures,
+        // Raw messages and actions for technical debugging
+        messages: debugState.messages,
+        actions: debugState.actions,
+        finalGameState: captureCurrentGameState()
+      };
+
+      const text = JSON.stringify(dump, null, 2);
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Debug state copied to clipboard!');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        // Fallback: show in console
+        console.log('Debug state:', text);
+      });
+    }
+
+    /**
+     * Generate a human-readable text-only summary of what the player saw.
+     * This is useful for sharing in chat/issues.
+     */
+    function generateTextSummary() {
+      let summary = '=== ONUW Debug Text Summary ===\n\n';
+
+      for (const capture of debugState.screenCaptures) {
+        summary += `--- ${capture.trigger} (${capture.screen}) ---\n`;
+        summary += `Time: ${capture.timestamp}\n`;
+        summary += `Connection: ${capture.connectionStatus}\n\n`;
+
+        if (capture.sections) {
+          summary += formatSectionsAsText(capture.sections, 0);
+        }
+        summary += '\n';
+      }
+
+      return summary;
+    }
+
+    function formatSectionsAsText(obj, indent) {
+      let text = '';
+      const spaces = '  '.repeat(indent);
+
+      for (const [key, value] of Object.entries(obj)) {
+        if (value === null || value === undefined || value === '') continue;
+
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          text += `${spaces}${key}:\n`;
+          text += formatSectionsAsText(value, indent + 1);
+        } else if (Array.isArray(value)) {
+          if (value.length > 0) {
+            text += `${spaces}${key}:\n`;
+            value.forEach((item, i) => {
+              if (typeof item === 'object') {
+                text += `${spaces}  [${i}]: ${JSON.stringify(item)}\n`;
+              } else {
+                text += `${spaces}  - ${item}\n`;
+              }
+            });
+          }
+        } else {
+          text += `${spaces}${key}: ${value}\n`;
+        }
+      }
+      return text;
+    }
+
+    function copyTextSummary() {
+      const summary = generateTextSummary();
+      navigator.clipboard.writeText(summary).then(() => {
+        alert('Text summary copied to clipboard!');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        console.log(summary);
+      });
+    }
+
+    // Expose debug functions globally
+    window.generateTextSummary = generateTextSummary;
+    window.copyTextSummary = copyTextSummary;
+
+    // Expose debug functions globally for console access
+    window.exportDebugState = exportDebugState;
+    window.copyDebugStateToClipboard = copyDebugStateToClipboard;
+    window.debugState = debugState;
+
+    // Initialize
+    $('playerName').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') connect();
+    });
+  </script>
+</body>
+</html>

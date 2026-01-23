@@ -127,6 +127,18 @@ export class RandomAgent extends AbstractAgent {
   }
 
   /**
+   * @summary Gets a player's display name from the context.
+   *
+   * @param {DayContext} context - Day context with player names
+   * @param {string} playerId - Player ID to look up
+   *
+   * @returns {string} Player's display name or ID if not found
+   */
+  private getPlayerName(context: DayContext, playerId: string): string {
+    return context.playerNames.get(playerId) || playerId;
+  }
+
+  /**
    * @summary Makes a simple statement claiming role.
    *
    * @param {DayContext} context - Day context
@@ -143,7 +155,8 @@ export class RandomAgent extends AbstractAgent {
         if (this.nightInfo.length > 0 && this.nightInfo[0].info.viewed) {
           const viewed = this.nightInfo[0].info.viewed[0];
           if (viewed.playerId) {
-            return `I am the Seer. I looked at ${viewed.playerId} and they are ${viewed.role}.`;
+            const targetName = this.getPlayerName(context, viewed.playerId);
+            return `I am the Seer. I looked at ${targetName} and they are ${viewed.role}.`;
           } else {
             return `I am the Seer. I looked at the center and saw ${viewed.role}.`;
           }
@@ -160,9 +173,13 @@ export class RandomAgent extends AbstractAgent {
       case RoleName.TROUBLEMAKER:
         if (this.nightInfo.length > 0 && this.nightInfo[0].info.swapped) {
           const swap = this.nightInfo[0].info.swapped;
-          return `I am the Troublemaker. I swapped ${swap.from.playerId} and ${swap.to.playerId}.`;
+          if (swap.from?.playerId && swap.to?.playerId) {
+            const name1 = this.getPlayerName(context, swap.from.playerId);
+            const name2 = this.getPlayerName(context, swap.to.playerId);
+            return `I am the Troublemaker. I swapped ${name1} and ${name2}.`;
+          }
         }
-        return 'I am the Troublemaker.';
+        return 'I am the Troublemaker. I swapped two players\' cards.';
 
       case RoleName.WEREWOLF:
         // Werewolves lie

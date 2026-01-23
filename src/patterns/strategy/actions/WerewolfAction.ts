@@ -178,8 +178,15 @@ export class WerewolfAction extends AbstractNightAction {
       });
     }
 
-    // Lone Wolf - may look at one center card
-    // For AI agents, we always look (it's advantageous information)
+    // Lone Wolf - first inform the player they are alone
+    // This info must be sent BEFORE asking for center card selection
+    // so the player understands WHY they're selecting a center card
+    const loneWolfInfo = this.createSuccessResult(context.myPlayerId, {
+      werewolves: [] // Empty array indicates lone wolf
+    });
+    agent.receiveNightInfo(loneWolfInfo);
+
+    // Now ask for center card selection
     const centerIndex = await agent.selectCenterCard(context);
 
     // Validate center index

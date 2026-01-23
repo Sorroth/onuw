@@ -25,7 +25,7 @@
 import { Game } from '../core/Game';
 import { GamePhase, RoleName, Team } from '../enums';
 import { PlayerStatement, NightActionResult } from '../types';
-import { PlayerGameView, PublicPlayerInfo, PlayerId } from '../network/protocol';
+import { SerializablePlayerGameView, PublicPlayerInfo, PlayerId } from '../network/protocol';
 
 /**
  * @summary Factory for creating player-specific game views.
@@ -65,7 +65,7 @@ export class PlayerViewFactory {
    * @param {string} playerId - ID of the player requesting the view
    * @param {number} [timeRemaining] - Optional time remaining in current phase
    *
-   * @returns {PlayerGameView} Sanitized view for the player
+   * @returns {SerializablePlayerGameView} Sanitized view for the player (JSON-safe)
    *
    * @throws {Error} If player is not in the game
    *
@@ -80,7 +80,7 @@ export class PlayerViewFactory {
     game: Game,
     playerId: string,
     timeRemaining: number | null = null
-  ): PlayerGameView {
+  ): SerializablePlayerGameView {
     const state = game.getState();
     const playerIndex = state.players.findIndex(p => p.id === playerId);
 
@@ -129,13 +129,13 @@ export class PlayerViewFactory {
    * @param {string} playerId - ID of the reconnecting player
    * @param {NightActionResult[]} missedNightInfo - Night info received while disconnected
    *
-   * @returns {PlayerGameView} View with full catch-up information
+   * @returns {SerializablePlayerGameView} View with full catch-up information (JSON-safe)
    */
   static createReconnectionView(
     game: Game,
     playerId: string,
     missedNightInfo: NightActionResult[]
-  ): PlayerGameView {
+  ): SerializablePlayerGameView {
     const baseView = this.createView(game, playerId);
 
     // Include any night info that was received during AI takeover
@@ -220,14 +220,19 @@ export class PlayerViewFactory {
    *
    * @param {Game} game - The game instance
    *
-   * @returns {Map<PlayerId, PlayerId>} Votes as Map
+   * @returns {Record<PlayerId, PlayerId>} Votes as Record (JSON-safe)
    *
    * @private
    */
   private static getVotesAsRecord(
     game: Game
-  ): ReadonlyMap<PlayerId, PlayerId> {
-    return game.getVotes();
+  ): Record<PlayerId, PlayerId> {
+    const votes = game.getVotes();
+    const record: Record<PlayerId, PlayerId> = {};
+    for (const [voterId, targetId] of votes) {
+      record[voterId] = targetId;
+    }
+    return record;
   }
 
   /**
@@ -244,25 +249,25 @@ export class PlayerViewFactory {
   }
 
   /**
-   * @summary Gets final roles as a plain object.
+   * @summary Gets final roles as a plain object (for JSON serialization).
    *
    * @param {Game} game - The game instance
    *
-   * @returns {Map<PlayerId, RoleName>} Final roles
+   * @returns {Record<PlayerId, RoleName>} Final roles as Record (JSON-safe)
    *
    * @private
    */
   private static getFinalRolesAsRecord(
     game: Game
-  ): ReadonlyMap<PlayerId, RoleName> {
-    const roles = new Map<PlayerId, RoleName>();
+  ): Record<PlayerId, RoleName> {
+    const record: Record<PlayerId, RoleName> = {};
     const state = game.getState();
 
     for (const player of state.players) {
-      roles.set(player.id, player.currentRole.name);
+      record[player.id] = player.currentRole.name;
     }
 
-    return roles;
+    return record;
   }
 
   /**
@@ -301,13 +306,13 @@ export class PlayerViewFactory {
  * Debug utility to verify views don't leak sensitive data.
  * Should be used in development/testing.
  *
- * @param {PlayerGameView} view - View to validate
+ * @param {SerializablePlayerGameView} view - View to validate
  * @param {GamePhase} currentPhase - Current game phase
  *
  * @returns {{ valid: boolean; violations: string[] }} Validation result
  */
 export function validatePlayerView(
-  view: PlayerGameView,
+  view: SerializablePlayerGameView,
   currentPhase: GamePhase
 ): { valid: boolean; violations: string[] } {
   const violations: string[] = [];

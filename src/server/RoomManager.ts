@@ -30,7 +30,7 @@
  */
 
 import { Room, RoomStatus, generateRoomCode, RoomEvent } from './Room';
-import { RoomCode, RoomConfig, PlayerId, RoomSummary } from '../network/protocol';
+import { RoomCode, RoomConfig, PlayerId, RoomSummary, DebugOptions } from '../network/protocol';
 
 /**
  * @summary Room manager configuration.
@@ -183,7 +183,7 @@ export class RoomManager {
    * console.log(`Join code: ${room.getCode()}`);
    * ```
    */
-  createRoom(hostId: PlayerId, config: RoomConfig): Room {
+  createRoom(hostId: PlayerId, config: RoomConfig, debugOptions?: DebugOptions): Room {
     if (this.rooms.size >= this.config.maxRooms) {
       throw new Error('Maximum number of rooms reached');
     }
@@ -201,8 +201,8 @@ export class RoomManager {
       }
     } while (this.rooms.has(code));
 
-    // Create room
-    const room = new Room(hostId, config, code);
+    // Create room (with debug options if provided)
+    const room = new Room(hostId, config, code, debugOptions);
 
     // Track room events
     room.onEvent((event) => {

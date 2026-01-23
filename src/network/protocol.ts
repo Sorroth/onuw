@@ -185,7 +185,7 @@ export interface PublicPlayerInfo {
 }
 
 /**
- * @summary Player's view of the game state.
+ * @summary Player's view of the game state (internal representation).
  *
  * @description
  * Contains only information the player is allowed to know.
@@ -239,6 +239,59 @@ export interface PlayerGameView {
 
   /** Current phase time remaining in ms */
   readonly timeRemaining: number | null;
+}
+
+/**
+ * @summary JSON-serializable version of PlayerGameView.
+ *
+ * @description
+ * Uses Records instead of Maps for JSON serialization over WebSocket.
+ * This is what actually gets sent to clients.
+ *
+ * @pattern Adapter - Converts internal Map-based types to serializable Records
+ */
+export interface SerializablePlayerGameView {
+  /** This player's ID */
+  readonly myPlayerId: PlayerId;
+
+  /** Game identifier */
+  readonly gameId: string;
+
+  /** Current game phase */
+  readonly phase: GamePhase;
+
+  /** My starting role (what I was dealt) */
+  readonly myStartingRole: RoleName;
+
+  /** Information learned during night phase */
+  readonly myNightInfo: readonly NightActionResult[];
+
+  /** All players (public info only) */
+  readonly players: readonly PublicPlayerInfo[];
+
+  /** All public statements made during day */
+  readonly statements: readonly PlayerStatement[];
+
+  /** Votes (only visible after voting ends) - Record for JSON */
+  readonly votes: Record<PlayerId, PlayerId> | null;
+
+  /** Eliminated players (only after resolution) */
+  readonly eliminatedPlayers: readonly PlayerId[] | null;
+
+  /** Final roles (only after game ends) - Record for JSON */
+  readonly finalRoles: Record<PlayerId, RoleName> | null;
+
+  /** Winning teams (only after game ends) */
+  readonly winningTeams: readonly Team[] | null;
+
+  /** Winning players (only after game ends) */
+  readonly winningPlayers: readonly PlayerId[] | null;
+
+  /** Current phase time remaining in ms */
+  readonly timeRemaining: number | null;
+
+  /** Whether this player was eliminated */
+  readonly isEliminated?: boolean;
 }
 
 // ============================================================================
@@ -366,11 +419,21 @@ export interface DisconnectMessage extends TimestampedMessage {
 }
 
 /**
+ * @summary Debug options for testing.
+ */
+export interface DebugOptions {
+  /** Force a specific starting role for the host player */
+  readonly forceRole?: RoleName;
+}
+
+/**
  * @summary Create a new game room.
  */
 export interface CreateRoomMessage extends TimestampedMessage {
   readonly type: 'createRoom';
   readonly config: RoomConfig;
+  /** Optional debug options for testing */
+  readonly debug?: DebugOptions;
 }
 
 /**
@@ -522,7 +585,9 @@ export interface RoomClosedMessage extends TimestampedMessage {
  */
 export interface GameStartedMessage extends TimestampedMessage {
   readonly type: 'gameStarted';
-  readonly view: PlayerGameView;
+  readonly view: SerializablePlayerGameView;
+  /** Maps game internal IDs (player-1) to room IDs (player-abc123) for client-side name resolution */
+  readonly playerIdMapping?: Record<string, PlayerId>;
 }
 
 /**
@@ -539,7 +604,7 @@ export interface PhaseChangeMessage extends TimestampedMessage {
  */
 export interface GameStateMessage extends TimestampedMessage {
   readonly type: 'gameState';
-  readonly view: PlayerGameView;
+  readonly view: SerializablePlayerGameView;
 }
 
 /**
@@ -600,12 +665,104 @@ export interface EliminationMessage extends TimestampedMessage {
 }
 
 /**
+ * @summary JSON-serializable version of GameResult.
+ *
+ * @description
+ * The core GameResult uses Maps which cannot be serialized to JSON.
+ * This interface uses Records for network transmission.
+ *
+ * @pattern Adapter - Converts internal Map-based types to serializable Records
+ */
+export interface SerializableGameResult {
+  /** Teams that won the game */
+  readonly winningTeams: readonly Team[];
+
+  /** Player IDs who won */
+  readonly winningPlayers: readonly PlayerId[];
+
+  /** Player IDs who were eliminated */
+  readonly eliminatedPlayers: readonly PlayerId[];
+
+  /** Final role for each player (after swaps) */
+  readonly finalRoles: Record<PlayerId, RoleName>;
+
+  /** Vote cast by each player */
+  readonly votes: Record<PlayerId, PlayerId>;
+}
+
+/**
+ * @summary A single action taken during the night phase.
+ *
+ * @description
+ * Records what a player did during their night action turn.
+ * Used in the post-game summary to show the full night phase history.
+ */
+export interface NightActionSummary {
+  /** Player who performed the action */
+  readonly playerId: PlayerId;
+
+  /** Player's name for display */
+  readonly playerName: string;
+
+  /** The role that performed the action */
+  readonly roleName: RoleName;
+
+  /** Human-readable description of what happened */
+  readonly description: string;
+}
+
+/**
+ * @summary A statement with player name for the game summary.
+ *
+ * @description
+ * Extended version of PlayerStatement that includes the player's
+ * display name for the post-game summary.
+ */
+export interface SummaryStatement {
+  /** Player's room ID */
+  readonly playerId: PlayerId;
+
+  /** Player's display name */
+  readonly playerName: string;
+
+  /** The content of the statement */
+  readonly statement: string;
+
+  /** When the statement was made */
+  readonly timestamp: number;
+}
+
+/**
+ * @summary Complete game summary for post-game review.
+ *
+ * @description
+ * Contains all significant events from the game:
+ * - Night actions (what each role did)
+ * - Day statements (what players claimed)
+ * - Final votes (who voted for whom)
+ */
+export interface GameSummary {
+  /** All night actions in wake order */
+  readonly nightActions: readonly NightActionSummary[];
+
+  /** All statements made during day phase (with player names) */
+  readonly statements: readonly SummaryStatement[];
+
+  /** Vote summary: voter name -> target name */
+  readonly votes: Record<string, string>;
+
+  /** Starting roles (before swaps) */
+  readonly startingRoles: Record<PlayerId, RoleName>;
+}
+
+/**
  * @summary Game has ended.
  */
 export interface GameEndMessage extends TimestampedMessage {
   readonly type: 'gameEnd';
-  readonly result: GameResult;
+  readonly result: SerializableGameResult;
   readonly finalRoles: Record<PlayerId, RoleName>;
+  readonly summary: GameSummary;
 }
 
 /**

@@ -195,6 +195,13 @@ export interface GameConfig {
 
   /** Roles to use in this game (must be players.length + 3) */
   readonly roles: ReadonlyArray<RoleName>;
+
+  /**
+   * Debug option: Force specific players to receive specific roles.
+   * Map of player index (0-based) to role name.
+   * Only used in debug/testing mode.
+   */
+  readonly forcedRoles?: ReadonlyMap<number, RoleName>;
 }
 
 // ============================================================================
@@ -452,6 +459,9 @@ export interface DayContext {
 
   /** IDs of all players in the game */
   readonly allPlayerIds: ReadonlyArray<string>;
+
+  /** Map of player IDs to display names */
+  readonly playerNames: ReadonlyMap<string, string>;
 }
 
 /**

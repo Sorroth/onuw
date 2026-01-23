@@ -111,6 +111,14 @@ export interface INightActionAgent {
    * @returns Tuple of two player IDs
    */
   selectTwoPlayers(options: string[], context: NightActionContext): Promise<[string, string]>;
+
+  /**
+   * Receive intermediate night action information.
+   * Called during multi-step night actions to provide context before further decisions.
+   * For example, Werewolf learns they are alone BEFORE being asked to peek at center.
+   * @param info The night action result information to receive
+   */
+  receiveNightInfo(info: NightActionResult): void;
 }
 
 /**
