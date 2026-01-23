@@ -142,8 +142,8 @@ export class MasonAction extends AbstractNightAction {
     _agent: INightActionAgent,
     gameState: INightActionGameState
   ): Promise<NightActionResult> {
-    // Find all Masons
-    const allMasons = gameState.getPlayersWithRole(RoleName.MASON);
+    // Find all Masons by STARTING role (not affected by swaps)
+    const allMasons = gameState.getPlayersWithStartingRole(RoleName.MASON);
 
     // Filter out self to get other Masons
     const otherMasons = allMasons.filter(id => id !== context.myPlayerId);

@@ -40,7 +40,7 @@ import {
   NightActionSummary,
   DebugOptions
 } from '../network/protocol';
-import { RoleName, GamePhase } from '../enums';
+import { RoleName, GamePhase, NIGHT_WAKE_ORDER } from '../enums';
 import { Game, IGameAgent } from '../core/Game';
 import { GameConfig } from '../types';
 import { RandomAgent } from '../agents/RandomAgent';
@@ -898,6 +898,15 @@ export class Room {
       };
     });
 
+    // Sort night actions by wake order
+    const wakeOrderMap = new Map<RoleName, number>();
+    NIGHT_WAKE_ORDER.forEach((role, index) => wakeOrderMap.set(role, index));
+    nightActions.sort((a, b) => {
+      const orderA = wakeOrderMap.get(a.roleName as RoleName) ?? 999;
+      const orderB = wakeOrderMap.get(b.roleName as RoleName) ?? 999;
+      return orderA - orderB;
+    });
+
     // Get statements and map player IDs to names
     const rawStatements = this.game.getStatements();
     const statements = rawStatements.map(stmt => {
@@ -952,6 +961,81 @@ export class Room {
     const info = result.info as Record<string, unknown> || {};
 
     switch (result.roleName) {
+      case RoleName.DOPPELGANGER: {
+        const copied = info.copied as { fromPlayerId: string; role: string } | undefined;
+        if (copied) {
+          const roomId = this.gameToRoomPlayerMap.get(copied.fromPlayerId) || copied.fromPlayerId;
+          const targetName = playerNames.get(roomId) || roomId;
+          let description = `Looked at ${targetName}'s card and became ${copied.role}`;
+
+          // Add details of the copied role's action
+          const copiedRole = copied.role;
+          const swapped = info.swapped as { from: { playerId?: string; centerIndex?: number }; to: { playerId?: string; centerIndex?: number } } | undefined;
+          const viewed = info.viewed as Array<{ playerId?: string; centerIndex?: number; role: string }> | undefined;
+
+          if (copiedRole === 'ROBBER' && swapped && viewed && viewed.length > 1) {
+            const robbedRoomId = this.gameToRoomPlayerMap.get(swapped.to.playerId || '') || swapped.to.playerId;
+            const robbedName = playerNames.get(robbedRoomId || '') || robbedRoomId;
+            const newRole = viewed[1]?.role || 'unknown';
+            description += `. Then robbed ${robbedName} and got ${newRole}`;
+          } else if (copiedRole === 'SEER' && viewed && viewed.length > 1) {
+            const seerViews = viewed.slice(1);
+            if (seerViews[0]?.playerId) {
+              const viewedRoomId = this.gameToRoomPlayerMap.get(seerViews[0].playerId) || seerViews[0].playerId;
+              const viewedName = playerNames.get(viewedRoomId) || viewedRoomId;
+              description += `. Then viewed ${viewedName}'s card: ${seerViews[0].role}`;
+            } else if (seerViews.length >= 2) {
+              const cards = seerViews.map(v => `Card ${(v.centerIndex || 0) + 1} = ${v.role}`).join(', ');
+              description += `. Then viewed center: ${cards}`;
+            }
+          } else if (copiedRole === 'TROUBLEMAKER' && swapped) {
+            const name1RoomId = this.gameToRoomPlayerMap.get(swapped.from.playerId || '') || swapped.from.playerId;
+            const name2RoomId = this.gameToRoomPlayerMap.get(swapped.to.playerId || '') || swapped.to.playerId;
+            const name1 = playerNames.get(name1RoomId || '') || name1RoomId;
+            const name2 = playerNames.get(name2RoomId || '') || name2RoomId;
+            description += `. Then swapped ${name1} and ${name2}'s cards`;
+          } else if (copiedRole === 'DRUNK' && swapped && swapped.to.centerIndex !== undefined) {
+            description += `. Then swapped with center card ${swapped.to.centerIndex + 1}`;
+          } else if (copiedRole === 'WEREWOLF') {
+            const werewolves = info.werewolves as string[] | undefined;
+            if (werewolves && werewolves.length > 0) {
+              const names = werewolves.map(id => {
+                const wRoomId = this.gameToRoomPlayerMap.get(id) || id;
+                return playerNames.get(wRoomId) || wRoomId;
+              });
+              description += `. Saw Werewolf(s): ${names.join(', ')}`;
+            } else if (viewed && viewed.length > 1 && viewed[1].centerIndex !== undefined) {
+              description += `. Lone wolf - peeked at center card ${viewed[1].centerIndex + 1}: ${viewed[1].role}`;
+            }
+          } else if (copiedRole === 'MINION') {
+            const werewolves = info.werewolves as string[] | undefined;
+            if (werewolves && werewolves.length > 0) {
+              const names = werewolves.map(id => {
+                const wRoomId = this.gameToRoomPlayerMap.get(id) || id;
+                return playerNames.get(wRoomId) || wRoomId;
+              });
+              description += `. Saw Werewolf(s): ${names.join(', ')}`;
+            } else {
+              description += `. No Werewolves among players`;
+            }
+          } else if (copiedRole === 'MASON') {
+            const masons = info.masons as string[] | undefined;
+            if (masons && masons.length > 0) {
+              const names = masons.map(id => {
+                const mRoomId = this.gameToRoomPlayerMap.get(id) || id;
+                return playerNames.get(mRoomId) || mRoomId;
+              });
+              description += `. Saw fellow Mason(s): ${names.join(', ')}`;
+            } else {
+              description += `. No other Masons`;
+            }
+          }
+
+          return description;
+        }
+        return 'Copied another player\'s role';
+      }
+
       case RoleName.WEREWOLF: {
         const werewolves = info.werewolves as string[] | undefined;
         if (werewolves && werewolves.length > 0) {

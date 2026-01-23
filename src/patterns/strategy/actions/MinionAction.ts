@@ -144,8 +144,8 @@ export class MinionAction extends AbstractNightAction {
     _agent: INightActionAgent,
     gameState: INightActionGameState
   ): Promise<NightActionResult> {
-    // Find all Werewolves
-    const werewolves = gameState.getPlayersWithRole(RoleName.WEREWOLF);
+    // Find all Werewolves by STARTING role (not affected by swaps)
+    const werewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
 
     return this.createSuccessResult(context.myPlayerId, {
       werewolves

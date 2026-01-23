@@ -775,6 +775,13 @@ export class Game implements IGameContext, INightActionGameState {
     });
   }
 
+  getPlayersWithStartingRole(roleName: RoleName): string[] {
+    return this.playerOrder.filter(id => {
+      const player = this.players.get(id)!;
+      return player.startingRole.name === roleName;
+    });
+  }
+
   getAllPlayerIds(): string[] {
     return [...this.playerOrder];
   }

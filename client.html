@@ -381,6 +381,7 @@
         <div style="margin: 15px 0;">
           <strong>Roles:</strong>
           <div id="roleSelection" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px;">
+            <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="DOPPELGANGER" style="width: auto; margin: 0;"> Doppelganger</label>
             <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="WEREWOLF" checked style="width: auto; margin: 0;"> Werewolf</label>
             <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="WEREWOLF" checked style="width: auto; margin: 0;"> Werewolf 2</label>
             <label style="display: flex; align-items: center; gap: 8px;"><input type="checkbox" value="SEER" checked style="width: auto; margin: 0;"> Seer</label>
@@ -408,6 +409,7 @@
             <label style="color: #ddd;">Your Role:
               <select id="debugRoleSelect" style="margin-left: 10px;">
                 <option value="">Random</option>
+                <option value="DOPPELGANGER">Doppelganger</option>
                 <option value="WEREWOLF">Werewolf</option>
                 <option value="SEER">Seer</option>
                 <option value="ROBBER">Robber</option>
@@ -909,14 +911,98 @@
 
     function displayNightResult(result) {
       const container = $('nightInfo');
+      const info = result.info || {};
+
+      // For Doppelganger: if this is a more complete result, replace the previous one
+      if (result.roleName === 'DOPPELGANGER') {
+        const existingDoppel = container.querySelector('.night-info-doppelganger');
+        if (existingDoppel) {
+          // Check if new result has more info (copied role's action result)
+          const hasActionResult = info.swapped || info.werewolves || info.masons ||
+                                  (info.viewed && info.viewed.length > 1);
+          if (hasActionResult) {
+            // Replace the old partial result with the complete one
+            existingDoppel.remove();
+          } else {
+            // This is just another partial result, skip it
+            return;
+          }
+        }
+      }
+
       const div = document.createElement('div');
-      div.className = 'night-info';
+      div.className = 'night-info' + (result.roleName === 'DOPPELGANGER' ? ' night-info-doppelganger' : '');
 
       let text = `As ${result.roleName}: `;
-      const info = result.info || {};
 
       // Handle different role results based on the actual data structure
       switch (result.roleName) {
+        case 'DOPPELGANGER':
+          if (info.copied) {
+            const targetName = getPlayerName(info.copied.fromPlayerId);
+            text += `Copied ${targetName}'s role: became ${info.copied.role}`;
+
+            // Show result of copied role's action
+            const copiedRole = info.copied.role;
+            if (copiedRole === 'ROBBER' && info.swapped && info.viewed && info.viewed.length > 1) {
+              // Doppel-Robber: show who they robbed and what they got
+              const robbedId = info.swapped.to.playerId;
+              const robbedName = getPlayerName(robbedId);
+              // The second viewed item is the new role after robbing
+              const newRole = info.viewed[1]?.role || 'unknown';
+              text += `. Then robbed ${robbedName} and got ${newRole}`;
+            } else if (copiedRole === 'SEER' && info.viewed && info.viewed.length > 1) {
+              // Doppel-Seer: show what they saw (skip first item which is the copy target)
+              const seerViews = info.viewed.slice(1);
+              if (seerViews[0]?.playerId) {
+                const viewedName = getPlayerName(seerViews[0].playerId);
+                text += `. Then viewed ${viewedName}'s card: ${seerViews[0].role}`;
+              } else if (seerViews.length >= 2) {
+                const cards = seerViews.map(v => `Card ${(v.centerIndex || 0) + 1} = ${v.role}`).join(', ');
+                text += `. Then viewed center: ${cards}`;
+              }
+            } else if (copiedRole === 'TROUBLEMAKER' && info.swapped) {
+              // Doppel-Troublemaker: show who they swapped
+              const name1 = getPlayerName(info.swapped.from.playerId);
+              const name2 = getPlayerName(info.swapped.to.playerId);
+              text += `. Then swapped ${name1} and ${name2}'s cards`;
+            } else if (copiedRole === 'DRUNK' && info.swapped && info.swapped.to.centerIndex !== undefined) {
+              // Doppel-Drunk: show which center card they swapped with
+              text += `. Then swapped with center card ${info.swapped.to.centerIndex + 1}`;
+            } else if (copiedRole === 'WEREWOLF') {
+              // Doppel-Werewolf: show other werewolves or center card peek
+              if (info.werewolves && info.werewolves.length > 0) {
+                const names = info.werewolves.map(id => getPlayerName(id)).join(', ');
+                text += `. Saw Werewolf(s): ${names}`;
+              } else if (info.viewed && info.viewed.length > 1) {
+                // Skip first view (the copy target), second is center peek
+                const centerView = info.viewed[1];
+                if (centerView.centerIndex !== undefined) {
+                  text += `. Lone wolf - peeked at center card ${centerView.centerIndex + 1}: ${centerView.role}`;
+                }
+              }
+            } else if (copiedRole === 'MINION' && info.werewolves) {
+              // Doppel-Minion: show werewolves
+              if (info.werewolves.length > 0) {
+                const names = info.werewolves.map(id => getPlayerName(id)).join(', ');
+                text += `. Saw Werewolf(s): ${names}`;
+              } else {
+                text += `. No Werewolves among players`;
+              }
+            } else if (copiedRole === 'MASON' && info.masons !== undefined) {
+              // Doppel-Mason: show other masons
+              if (info.masons.length > 0) {
+                const names = info.masons.map(id => getPlayerName(id)).join(', ');
+                text += `. Saw fellow Mason(s): ${names}`;
+              } else {
+                text += `. No other Masons`;
+              }
+            }
+          } else {
+            text += 'Copied a role';
+          }
+          break;
+
         case 'WEREWOLF':
           if (info.werewolves && info.werewolves.length > 0) {
             const names = info.werewolves.map(id => getPlayerName(id)).join(', ');

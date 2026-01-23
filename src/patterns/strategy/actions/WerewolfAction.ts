@@ -167,8 +167,8 @@ export class WerewolfAction extends AbstractNightAction {
     agent: INightActionAgent,
     gameState: INightActionGameState
   ): Promise<NightActionResult> {
-    // Find all other Werewolves
-    const allWerewolves = gameState.getPlayersWithRole(RoleName.WEREWOLF);
+    // Find all other Werewolves by STARTING role (not affected by swaps)
+    const allWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
     const otherWerewolves = allWerewolves.filter(id => id !== context.myPlayerId);
 
     if (otherWerewolves.length > 0) {

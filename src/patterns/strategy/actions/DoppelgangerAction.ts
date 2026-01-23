@@ -191,6 +191,23 @@ export class DoppelgangerAction extends AbstractNightAction {
       }]
     };
 
+    // For roles that require player input, notify them what role they copied BEFORE asking
+    // This ensures they know they're a "Doppel-Troublemaker" before selecting two players
+    const rolesRequiringInput = [RoleName.SEER, RoleName.ROBBER, RoleName.TROUBLEMAKER, RoleName.DRUNK, RoleName.WEREWOLF];
+    if (rolesRequiringInput.includes(copiedRole)) {
+      const copyInfo = this.createSuccessResult(context.myPlayerId, {
+        copied: {
+          fromPlayerId: targetId,
+          role: copiedRole
+        },
+        viewed: [{
+          playerId: targetId,
+          role: copiedRole
+        }]
+      });
+      agent.receiveNightInfo(copyInfo);
+    }
+
     // Handle immediate actions based on copied role
     const additionalInfo = await this.executeImmediateAction(
       copiedRole,
@@ -266,12 +283,20 @@ export class DoppelgangerAction extends AbstractNightAction {
       case RoleName.DRUNK:
         return this.executeDrunkAction(context, agent, gameState);
 
-      // These roles have delayed actions handled by the game
+      // Doppel-Werewolf: See other werewolves or peek at center if lone wolf
       case RoleName.WEREWOLF:
+        return this.executeWerewolfAction(context, agent, gameState);
+
+      // Doppel-Minion: See who the werewolves are
       case RoleName.MINION:
+        return this.executeMinionAction(context, gameState);
+
+      // Doppel-Mason: See other masons
       case RoleName.MASON:
+        return this.executeMasonAction(context, gameState);
+
+      // Doppel-Insomniac wakes again at the very end (not implemented yet)
       case RoleName.INSOMNIAC:
-        // No immediate action - handled during normal wake order
         return null;
 
       // These roles have no night action
@@ -389,5 +414,65 @@ export class DoppelgangerAction extends AbstractNightAction {
         to: { centerIndex }
       }
     };
+  }
+
+  /**
+   * @summary Executes Werewolf action for Doppelganger.
+   * @description Doppel-Werewolf sees other starting werewolves, or peeks at center if lone wolf.
+   * @private
+   */
+  private async executeWerewolfAction(
+    context: NightActionContext,
+    agent: INightActionAgent,
+    gameState: INightActionGameState
+  ): Promise<NightActionInfo> {
+    // Find all players who STARTED as Werewolf
+    const allWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+
+    if (allWerewolves.length > 0) {
+      // Doppel-Werewolf sees the starting werewolves
+      return { werewolves: allWerewolves };
+    }
+
+    // Lone wolf (no starting werewolves) - peek at a center card
+    const centerIndex = await agent.selectCenterCard(context);
+    const centerRole = gameState.getCenterCard(centerIndex);
+
+    return {
+      werewolves: [],
+      viewed: [{
+        centerIndex,
+        role: centerRole
+      }]
+    };
+  }
+
+  /**
+   * @summary Executes Minion action for Doppelganger.
+   * @description Doppel-Minion sees who the starting werewolves are.
+   * @private
+   */
+  private executeMinionAction(
+    context: NightActionContext,
+    gameState: INightActionGameState
+  ): NightActionInfo {
+    // Find all players who STARTED as Werewolf
+    const werewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+    return { werewolves };
+  }
+
+  /**
+   * @summary Executes Mason action for Doppelganger.
+   * @description Doppel-Mason sees other starting masons.
+   * @private
+   */
+  private executeMasonAction(
+    context: NightActionContext,
+    gameState: INightActionGameState
+  ): NightActionInfo {
+    // Find all players who STARTED as Mason (excluding self)
+    const allMasons = gameState.getPlayersWithStartingRole(RoleName.MASON);
+    const otherMasons = allMasons.filter(id => id !== context.myPlayerId);
+    return { masons: otherMasons };
   }
 }

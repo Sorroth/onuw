@@ -50,8 +50,11 @@ export interface INightActionGameState {
   /** Swap two card positions */
   swapCards(pos1: CardPosition, pos2: CardPosition): void;
 
-  /** Get all player IDs with a specific role */
+  /** Get all player IDs with a specific current role */
   getPlayersWithRole(roleName: RoleName): string[];
+
+  /** Get all player IDs with a specific starting role (for Werewolf/Mason/Minion identification) */
+  getPlayersWithStartingRole(roleName: RoleName): string[];
 
   /** Get all player IDs */
   getAllPlayerIds(): string[];
