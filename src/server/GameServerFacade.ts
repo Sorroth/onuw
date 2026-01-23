@@ -295,6 +295,14 @@ export class GameServerFacade {
           // Handled by WebSocket connection
           break;
 
+        case 'submitStatement':
+          this.handleSubmitStatement(connection, message);
+          break;
+
+        case 'readyToVote':
+          this.handleReadyToVote(connection);
+          break;
+
         default:
           this.sendError(connection, ErrorCodes.INVALID_MESSAGE, `Unknown message type`);
       }
@@ -727,6 +735,78 @@ export class GameServerFacade {
   ): void {
     // This is handled by RemoteHumanPlayer through its message handlers
     // The connection's onMessage handlers process action responses
+  }
+
+  /**
+   * @summary Handles real-time statement submission during day phase.
+   *
+   * @description
+   * Players can submit statements at any time during the DAY phase.
+   * The statement is broadcast to all players immediately via Observer pattern.
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Submit statement message
+   *
+   * @private
+   */
+  private handleSubmitStatement(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'submitStatement' }>
+  ): void {
+    const session = this.getSession(connection);
+    if (!session || !session.roomCode) {
+      this.sendError(connection, ErrorCodes.NOT_IN_ROOM, 'Not in a room');
+      return;
+    }
+
+    const room = this.roomManager.getRoom(session.roomCode);
+    if (!room) {
+      return;
+    }
+
+    try {
+      room.submitStatement(session.playerId, message.statement);
+    } catch (error) {
+      this.sendError(
+        connection,
+        ErrorCodes.INVALID_ACTION,
+        error instanceof Error ? error.message : 'Failed to submit statement'
+      );
+    }
+  }
+
+  /**
+   * @summary Handles player signaling ready to move to voting phase.
+   *
+   * @description
+   * During the DAY phase, players can signal they're ready to vote.
+   * When all players are ready (or a timeout occurs), the game moves to VOTING.
+   *
+   * @param {IClientConnection} connection - Connection
+   *
+   * @private
+   */
+  private handleReadyToVote(connection: IClientConnection): void {
+    const session = this.getSession(connection);
+    if (!session || !session.roomCode) {
+      this.sendError(connection, ErrorCodes.NOT_IN_ROOM, 'Not in a room');
+      return;
+    }
+
+    const room = this.roomManager.getRoom(session.roomCode);
+    if (!room) {
+      return;
+    }
+
+    try {
+      room.setPlayerReadyToVote(session.playerId);
+    } catch (error) {
+      this.sendError(
+        connection,
+        ErrorCodes.INVALID_ACTION,
+        error instanceof Error ? error.message : 'Failed to set ready to vote'
+      );
+    }
   }
 
   /**

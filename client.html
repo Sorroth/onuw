@@ -476,22 +476,28 @@
         <div id="nightInfo"></div>
       </div>
 
-      <div class="card" id="actionCard" class="hidden">
+      <div class="card hidden" id="dayCard">
+        <h2>Day Discussion</h2>
+        <div class="statements" id="statements">
+          <div id="noStatementsMsg" style="color: #888; font-style: italic;">Waiting for statements...</div>
+        </div>
+        <div id="statementInput" style="margin-top: 15px;">
+          <input type="text" id="statementText" placeholder="Make your statement..." onkeypress="if(event.key==='Enter')submitStatement()">
+          <button onclick="submitStatement()">Send</button>
+        </div>
+        <div id="readyToVoteSection" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1);">
+          <div id="readyStatus" style="font-size: 14px; color: #888; margin-bottom: 10px;">When everyone is done discussing, click Ready to Vote</div>
+          <button id="readyToVoteBtn" onclick="readyToVote()" class="ready">Ready to Vote</button>
+        </div>
+      </div>
+
+      <div class="card hidden" id="actionCard">
         <h2 id="actionTitle">Action Required</h2>
         <p id="actionDescription"></p>
         <div id="actionOptions" class="actions"></div>
       </div>
 
-      <div class="card" id="dayCard" class="hidden">
-        <h2>Day Discussion</h2>
-        <div class="statements" id="statements"></div>
-        <div id="statementInput" class="hidden">
-          <input type="text" id="statementText" placeholder="Make your statement...">
-          <button onclick="makeStatement()">Submit Statement</button>
-        </div>
-      </div>
-
-      <div class="card" id="votingCard" class="hidden">
+      <div class="card hidden" id="votingCard">
         <h2>Voting</h2>
         <p>Choose who to eliminate:</p>
         <div class="voting-grid" id="votingOptions"></div>
@@ -692,13 +698,17 @@
           captureDebugState('actionRequired', msg.request);
           break;
 
-        case 'phaseChanged':
+        case 'phaseChange':
           log('Phase changed to: ' + msg.phase);
           handlePhaseChange(msg.phase);
           break;
 
         case 'statementMade':
           addStatement(msg.playerId, msg.playerName, msg.statement);
+          break;
+
+        case 'playerReadyToVote':
+          handlePlayerReadyToVote(msg);
           break;
 
         case 'voteRequired':
@@ -1196,18 +1206,39 @@
 
     function handlePhaseChange(phase) {
       $('actionCard').classList.add('hidden');
-      $('dayCard').classList.add('hidden');
+      // votingCard is not used - voting is handled via actionCard
       $('votingCard').classList.add('hidden');
 
       if (phase === 'DAY') {
         $('dayCard').classList.remove('hidden');
+        // Show statement input and ready-to-vote section during day phase
+        $('statementInput').classList.remove('hidden');
+        $('readyToVoteSection').classList.remove('hidden');
+        // Reset ready button state
+        $('readyToVoteBtn').disabled = false;
+        $('readyToVoteBtn').textContent = 'Ready to Vote';
+        $('readyToVoteBtn').style.background = '';
+        $('readyStatus').textContent = 'When everyone is done discussing, click Ready to Vote';
+        $('readyStatus').style.color = '#888';
       } else if (phase === 'VOTING') {
-        $('votingCard').classList.remove('hidden');
+        // Keep Day Discussion visible during voting so players can reference statements
+        $('dayCard').classList.remove('hidden');
+        // Hide the statement input and ready-to-vote section during voting
+        $('statementInput').classList.add('hidden');
+        $('readyToVoteSection').classList.add('hidden');
+        // Note: votingCard stays hidden - voting buttons appear in actionCard
+      } else if (phase === 'NIGHT') {
+        $('dayCard').classList.add('hidden');
       }
     }
 
     function addStatement(pId, pName, statement) {
       const container = $('statements');
+      // Remove "waiting for statements" placeholder if present
+      const placeholder = $('noStatementsMsg');
+      if (placeholder) {
+        placeholder.remove();
+      }
       const div = document.createElement('div');
       div.className = 'statement';
       div.innerHTML = `<span class="statement-player">${pName}:</span> ${statement}`;
@@ -1216,6 +1247,40 @@
       log(`${pName}: ${statement}`);
     }
 
+    // Real-time statement submission (new concurrent discussion system)
+    function submitStatement() {
+      const text = $('statementText').value.trim();
+      if (!text) return;
+
+      send({
+        type: 'submitStatement',
+        statement: text
+      });
+
+      $('statementText').value = '';
+      log('You said: "' + text + '"');
+    }
+
+    // Signal ready to move to voting phase
+    function readyToVote() {
+      send({ type: 'readyToVote' });
+      $('readyToVoteBtn').disabled = true;
+      $('readyToVoteBtn').textContent = 'Waiting for others...';
+      $('readyToVoteBtn').style.background = '#555';
+      log('You are ready to vote');
+    }
+
+    // Handle when a player signals they're ready to vote
+    function handlePlayerReadyToVote(msg) {
+      const statusEl = $('readyStatus');
+      if (statusEl) {
+        statusEl.textContent = `${msg.playerName} is ready to vote (${msg.readyCount}/${msg.totalPlayers})`;
+        statusEl.style.color = '#4ade80';
+      }
+      log(`${msg.playerName} is ready to vote (${msg.readyCount}/${msg.totalPlayers})`);
+    }
+
+    // Legacy function for sequential statements (kept for backwards compatibility)
     function makeStatement() {
       const text = $('statementText').value.trim();
       if (!text) return;
@@ -1274,27 +1339,27 @@
       const rolesEl = $('finalRoles');
       rolesEl.innerHTML = '';
 
-      // Show eliminated players section
+      // Show eliminated players section (full width, centered)
+      const elimSection = document.createElement('div');
+      elimSection.style.cssText = 'grid-column: 1 / -1; text-align: center; margin-bottom: 15px;';
       if (eliminatedPlayers.length > 0) {
-        const elimDiv = document.createElement('div');
-        elimDiv.style.cssText = 'margin-bottom: 15px; color: #e94560;';
+        elimSection.style.color = '#e94560';
         const eliminatedNames = eliminatedPlayers.map(id => getPlayerName(id));
-        elimDiv.innerHTML = `<strong>Eliminated:</strong> ${eliminatedNames.join(', ')}`;
-        rolesEl.appendChild(elimDiv);
+        elimSection.innerHTML = `<strong>Eliminated:</strong> ${eliminatedNames.join(', ')}`;
       } else {
-        const noElimDiv = document.createElement('div');
-        noElimDiv.style.cssText = 'margin-bottom: 15px; color: #4ade80;';
-        noElimDiv.innerHTML = '<strong>No one was eliminated!</strong>';
-        rolesEl.appendChild(noElimDiv);
+        elimSection.style.color = '#4ade80';
+        elimSection.innerHTML = '<strong>No one was eliminated!</strong>';
       }
+      rolesEl.appendChild(elimSection);
 
-      // Show final roles
+      // Show final roles header (full width)
       if (msg.finalRoles) {
         const rolesHeader = document.createElement('div');
-        rolesHeader.style.cssText = 'margin: 15px 0 10px; font-weight: bold;';
+        rolesHeader.style.cssText = 'grid-column: 1 / -1; margin: 10px 0; font-weight: bold; text-align: center;';
         rolesHeader.textContent = 'Final Roles:';
         rolesEl.appendChild(rolesHeader);
 
+        // Add each role as a proper grid item using the .final-role style
         Object.entries(msg.finalRoles).forEach(([pId, role]) => {
           const div = document.createElement('div');
           div.className = 'final-role';
@@ -1307,12 +1372,29 @@
           if (isEliminated) status = ' (Eliminated)';
           else if (isWinner) status = ' (Winner!)';
           const playerDisplayName = getPlayerName(pId);
-          div.innerHTML = `<strong>${playerDisplayName}</strong>: ${role}${status}`;
-          div.style.cssText = 'padding: 5px 0; border-bottom: 1px solid #333;';
+          div.innerHTML = `<strong>${playerDisplayName}</strong><br>${role}${status}`;
           if (isWinner) div.style.color = '#4ade80';
           if (isEliminated) div.style.color = '#e94560';
           rolesEl.appendChild(div);
         });
+      }
+
+      // Show center cards header and cards (full width section)
+      if (msg.centerCards && msg.centerCards.length > 0) {
+        const centerHeader = document.createElement('div');
+        centerHeader.style.cssText = 'grid-column: 1 / -1; margin: 20px 0 10px; font-weight: bold; text-align: center;';
+        centerHeader.textContent = 'Center Cards:';
+        rolesEl.appendChild(centerHeader);
+
+        const centerDiv = document.createElement('div');
+        centerDiv.style.cssText = 'grid-column: 1 / -1; display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;';
+        msg.centerCards.forEach((role, index) => {
+          const cardDiv = document.createElement('div');
+          cardDiv.style.cssText = 'background: #2d2d3d; padding: 15px 25px; border-radius: 8px; text-align: center; min-width: 100px;';
+          cardDiv.innerHTML = `<div style="color: #888; font-size: 12px; margin-bottom: 5px;">Card ${index + 1}</div><div style="color: #a78bfa; font-weight: bold; font-size: 16px;">${role}</div>`;
+          centerDiv.appendChild(cardDiv);
+        });
+        rolesEl.appendChild(centerDiv);
       }
 
       // Show game summary
@@ -1389,12 +1471,14 @@
     }
 
     function backToLobby() {
+      // Tell server we're leaving the room
+      send({ type: 'leaveRoom' });
       currentRoom = null;
       isReady = false;
       gameIdMapping = null;
       // Don't reset debug state here - user might want to export after game ends
       $('nightInfo').innerHTML = '';
-      $('statements').innerHTML = '';
+      $('statements').innerHTML = '<div id="noStatementsMsg" style="color: #888; font-style: italic;">Waiting for statements...</div>';
       $('gameLog').innerHTML = '';
       showScreen('lobbyScreen');
     }

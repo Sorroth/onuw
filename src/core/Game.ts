@@ -149,6 +149,9 @@ export class Game implements IGameContext, INightActionGameState {
   /** Votes cast during voting */
   private readonly votes: Map<string, string> = new Map();
 
+  /** Resolver for ending the day phase (real-time discussion) */
+  private dayPhaseResolver: (() => void) | null = null;
+
   /** Win condition strategies */
   private readonly winConditions: IWinCondition[] = [
     new VillageWinCondition(),
@@ -490,8 +493,42 @@ export class Game implements IGameContext, INightActionGameState {
 
   /**
    * @summary Collects statements from all players.
+   *
+   * @description
+   * For human players in a networked game, this waits for real-time
+   * statement submissions via addStatement() until endDayPhase() is called.
+   * For AI players, it collects statements immediately.
+   *
+   * The method supports both:
+   * - Real-time mode: Wait for endDayPhase() signal (networked human players)
+   * - Sequential mode: Collect from AI agents immediately
    */
   async collectStatements(): Promise<void> {
+    // Check if we have any human agents (NetworkAgents)
+    // If all agents are AI, collect sequentially for backward compatibility
+    const hasHumanPlayers = Array.from(this.agents.values()).some(
+      agent => agent.constructor.name === 'NetworkAgent'
+    );
+
+    if (hasHumanPlayers) {
+      // Real-time mode: Wait for human players to submit statements
+      // and for endDayPhase() to be called
+      await this.waitForDayPhaseEnd();
+    } else {
+      // Sequential mode: AI-only game, collect statements immediately
+      await this.collectStatementsSequentially();
+    }
+  }
+
+  /**
+   * @summary Collects statements sequentially from AI agents.
+   *
+   * @description
+   * Used for AI-only games where we don't need to wait for real-time input.
+   *
+   * @private
+   */
+  private async collectStatementsSequentially(): Promise<void> {
     for (const playerId of this.playerOrder) {
       const player = this.players.get(playerId)!;
       const agent = this.agents.get(playerId)!;
@@ -522,6 +559,91 @@ export class Game implements IGameContext, INightActionGameState {
 
       this.eventEmitter.emitStatement(playerId, statement);
       this.logAuditEvent('STATEMENT_MADE', { playerId, statement });
+    }
+  }
+
+  /**
+   * @summary Waits for the day phase to end.
+   *
+   * @description
+   * Creates a Promise that resolves when endDayPhase() is called.
+   * Used for real-time networked games where human players submit
+   * statements asynchronously.
+   *
+   * @private
+   */
+  private async waitForDayPhaseEnd(): Promise<void> {
+    // Collect statements from AI players immediately
+    for (const playerId of this.playerOrder) {
+      const agent = this.agents.get(playerId)!;
+
+      // Only collect from AI agents (non-NetworkAgents)
+      if (agent.constructor.name !== 'NetworkAgent') {
+        const player = this.players.get(playerId)!;
+
+        // Build player names map
+        const playerNames = new Map<string, string>();
+        for (const [pid, p] of this.players) {
+          playerNames.set(pid, p.name);
+        }
+
+        const context: DayContext = {
+          myPlayerId: playerId,
+          myStartingRole: player.startingRole.name,
+          myNightInfo: (this.nightResults.get(playerId) || [])[0] || null,
+          statements: [...this.statements],
+          rolesInGame: this.config.roles,
+          allPlayerIds: this.playerOrder,
+          playerNames
+        };
+
+        const statement = await agent.makeStatement(context);
+        this.addStatement(playerId, statement);
+      }
+    }
+
+    // Wait for endDayPhase() to be called by human players
+    return new Promise<void>((resolve) => {
+      this.dayPhaseResolver = resolve;
+    });
+  }
+
+  /**
+   * @summary Adds a statement during the day phase (real-time).
+   *
+   * @description
+   * Allows players to submit statements at any time during the DAY phase.
+   * The statement is recorded and broadcast to all players via Observer pattern.
+   * Multiple statements from the same player are allowed.
+   *
+   * @param {string} playerId - Player submitting the statement
+   * @param {string} statement - The statement text
+   *
+   * @pattern Observer - Statement is broadcast via event emitter
+   */
+  addStatement(playerId: string, statement: string): void {
+    this.statements.push({
+      playerId,
+      statement,
+      timestamp: Date.now()
+    });
+
+    this.eventEmitter.emitStatement(playerId, statement);
+    this.logAuditEvent('STATEMENT_MADE', { playerId, statement });
+  }
+
+  /**
+   * @summary Ends the day phase and moves to voting.
+   *
+   * @description
+   * Called when all human players have signaled they're ready to vote.
+   * This resolves the Promise created in waitForDayPhaseEnd(), allowing
+   * the game to proceed to the voting phase.
+   */
+  endDayPhase(): void {
+    if (this.dayPhaseResolver) {
+      this.dayPhaseResolver();
+      this.dayPhaseResolver = null;
     }
   }
 
@@ -625,6 +747,15 @@ export class Game implements IGameContext, INightActionGameState {
       throw new Error(`Invalid center index: ${index}`);
     }
     return this.centerCards[index].name;
+  }
+
+  /**
+   * @summary Gets all center card roles.
+   *
+   * @returns {RoleName[]} Array of center card roles (3 cards)
+   */
+  getCenterCards(): RoleName[] {
+    return this.centerCards.map(role => role.name);
   }
 
   swapCards(pos1: CardPosition, pos2: CardPosition): void {

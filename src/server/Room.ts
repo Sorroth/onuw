@@ -189,6 +189,9 @@ export class Room {
   /** Debug options for testing */
   private debugOptions: DebugOptions | null = null;
 
+  /** Players who have signaled ready to vote */
+  private playersReadyToVote: Set<PlayerId> = new Set();
+
   /**
    * @summary Creates a new game room.
    *
@@ -433,6 +436,106 @@ export class Room {
   }
 
   /**
+   * @summary Submits a statement during the day phase (real-time).
+   *
+   * @description
+   * Players can submit statements at any time during the DAY phase.
+   * The statement is added to the game and broadcast to all players.
+   * Multiple statements from the same player are allowed.
+   *
+   * @param {PlayerId} playerId - Player submitting the statement
+   * @param {string} statement - The statement text
+   *
+   * @throws {Error} If not in DAY phase or player not in game
+   *
+   * @pattern Observer - Statement is broadcast to all players
+   */
+  submitStatement(playerId: PlayerId, statement: string): void {
+    if (this.status !== RoomStatus.PLAYING || !this.game) {
+      throw new Error('Game is not in progress');
+    }
+
+    const currentPhase = this.game.getPhase();
+    if (currentPhase !== GamePhase.DAY) {
+      throw new Error('Can only submit statements during the DAY phase');
+    }
+
+    const player = this.players.get(playerId);
+    if (!player) {
+      throw new Error('Player is not in the room');
+    }
+
+    // Get the game player ID from the room player ID
+    const gamePlayerId = this.roomToGamePlayerMap.get(playerId);
+    if (!gamePlayerId) {
+      throw new Error('Player not found in game');
+    }
+
+    // Add statement to the game
+    this.game.addStatement(gamePlayerId, statement);
+
+    // Broadcast to all players (Observer pattern)
+    // Note: The game observer will handle broadcasting via the STATEMENT_MADE event
+  }
+
+  /**
+   * @summary Marks a player as ready to move to voting phase.
+   *
+   * @description
+   * During the DAY phase, players can signal they're ready to vote.
+   * When all human players are ready, the game transitions to VOTING.
+   * AI players are automatically considered ready.
+   *
+   * @param {PlayerId} playerId - Player signaling ready
+   *
+   * @throws {Error} If not in DAY phase or player not in game
+   */
+  setPlayerReadyToVote(playerId: PlayerId): void {
+    if (this.status !== RoomStatus.PLAYING || !this.game) {
+      throw new Error('Game is not in progress');
+    }
+
+    const currentPhase = this.game.getPhase();
+    if (currentPhase !== GamePhase.DAY) {
+      throw new Error('Can only signal ready to vote during the DAY phase');
+    }
+
+    const player = this.players.get(playerId);
+    if (!player) {
+      throw new Error('Player is not in the room');
+    }
+
+    // Mark player as ready to vote
+    this.playersReadyToVote.add(playerId);
+
+    // Count human players and ready players
+    const humanPlayers = Array.from(this.players.values()).filter(p => !p.isAI);
+    const readyCount = this.playersReadyToVote.size;
+    const totalHumans = humanPlayers.length;
+
+    // Broadcast ready status to all players
+    const readyMessage: ServerMessage = {
+      type: 'playerReadyToVote',
+      playerId,
+      playerName: player.name,
+      readyCount,
+      totalPlayers: totalHumans,
+      timestamp: Date.now()
+    };
+    this.broadcast(readyMessage);
+
+    // Check if all human players are ready
+    const allHumansReady = humanPlayers.every(p => this.playersReadyToVote.has(p.id));
+
+    if (allHumansReady) {
+      // Signal the game to end the day phase and move to voting
+      this.game.endDayPhase();
+      // Reset ready-to-vote tracking for next game
+      this.playersReadyToVote.clear();
+    }
+  }
+
+  /**
    * @summary Checks if the game can be started.
    *
    * @returns {boolean} True if game can start
@@ -622,6 +725,41 @@ export class Room {
     // Register agents and run game asynchronously
     console.log(`Registering ${agents.size} agents and starting game...`);
     this.game.registerAgents(agents);
+
+    // Subscribe to game events to broadcast to all players
+    this.game.addObserver({
+      onEvent: (event: { type: string; data?: Record<string, unknown> }) => {
+        if (event.type === 'STATEMENT_MADE' && event.data) {
+          const gamePlayerId = event.data.playerId as string;
+          const statement = event.data.statement as string;
+          if (gamePlayerId && statement) {
+            // Map game ID to room ID and get player name
+            const roomPlayerId = this.gameToRoomPlayerMap.get(gamePlayerId) || gamePlayerId;
+            const player = this.players.get(roomPlayerId);
+            const playerName = player?.name || roomPlayerId;
+
+            // Broadcast statement to all players
+            this.broadcast({
+              type: 'statementMade',
+              playerId: roomPlayerId,
+              playerName,
+              statement,
+              timestamp: Date.now()
+            });
+          }
+        } else if (event.type === 'PHASE_CHANGED' && event.data) {
+          // Broadcast phase change to all players
+          const toPhase = event.data.to as GamePhase;
+          this.broadcast({
+            type: 'phaseChange',
+            phase: toPhase,
+            timeRemaining: null,
+            timestamp: Date.now()
+          });
+        }
+      }
+    });
+
     this.runGameAsync(playerList);
 
     return this.game;
@@ -674,12 +812,16 @@ export class Room {
         votes: votesRecord
       };
 
+      // Get final center cards
+      const centerCards = this.game.getCenterCards();
+
       for (const roomPlayer of playerList) {
         if (roomPlayer.connection.isConnected()) {
           const message: ServerMessage = {
             type: 'gameEnd',
             result: serializableResult,
             finalRoles: finalRolesRecord,
+            centerCards,
             summary: gameSummary,
             timestamp: Date.now()
           };

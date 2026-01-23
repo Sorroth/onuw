@@ -507,6 +507,32 @@ export interface PingMessage extends TimestampedMessage {
 }
 
 /**
+ * @summary Submit a statement during day phase (real-time).
+ *
+ * @description
+ * Players can submit statements at any time during the DAY phase.
+ * Statements are broadcast to all players immediately.
+ * Multiple statements from the same player are allowed.
+ *
+ * @pattern Observer - Statement is broadcast to all players
+ */
+export interface SubmitStatementMessage extends TimestampedMessage {
+  readonly type: 'submitStatement';
+  readonly statement: string;
+}
+
+/**
+ * @summary Signal ready to move to voting phase.
+ *
+ * @description
+ * During the DAY phase, players can signal they're ready to vote.
+ * When all players are ready (or timeout occurs), the game moves to VOTING.
+ */
+export interface ReadyToVoteMessage extends TimestampedMessage {
+  readonly type: 'readyToVote';
+}
+
+/**
  * @summary Union of all client message types.
  */
 export type ClientMessage =
@@ -521,7 +547,9 @@ export type ClientMessage =
   | StartGameMessage
   | ActionResponseMessage
   | GetStateMessage
-  | PingMessage;
+  | PingMessage
+  | SubmitStatementMessage
+  | ReadyToVoteMessage;
 
 // ============================================================================
 // SERVER → CLIENT MESSAGES
@@ -645,7 +673,9 @@ export interface NightResultMessage extends TimestampedMessage {
  */
 export interface StatementMadeMessage extends TimestampedMessage {
   readonly type: 'statementMade';
-  readonly statement: PlayerStatement;
+  readonly playerId: PlayerId;
+  readonly playerName: string;
+  readonly statement: string;
 }
 
 /**
@@ -762,6 +792,7 @@ export interface GameEndMessage extends TimestampedMessage {
   readonly type: 'gameEnd';
   readonly result: SerializableGameResult;
   readonly finalRoles: Record<PlayerId, RoleName>;
+  readonly centerCards: readonly RoleName[];
   readonly summary: GameSummary;
 }
 
@@ -792,6 +823,21 @@ export interface PongMessage extends TimestampedMessage {
 }
 
 /**
+ * @summary Player marked ready to vote during day phase.
+ *
+ * @description
+ * Broadcast when a player signals they're ready to move to voting.
+ * Includes count of ready players so clients can show progress.
+ */
+export interface PlayerReadyToVoteMessage extends TimestampedMessage {
+  readonly type: 'playerReadyToVote';
+  readonly playerId: PlayerId;
+  readonly playerName: string;
+  readonly readyCount: number;
+  readonly totalPlayers: number;
+}
+
+/**
  * @summary Union of all server message types.
  */
 export type ServerMessage =
@@ -814,7 +860,8 @@ export type ServerMessage =
   | GameEndMessage
   | PlayerDisconnectedMessage
   | PlayerReconnectedMessage
-  | PongMessage;
+  | PongMessage
+  | PlayerReadyToVoteMessage;
 
 // ============================================================================
 // TYPE GUARDS
@@ -832,7 +879,7 @@ export function isClientMessage(data: unknown): data is ClientMessage {
   const validTypes: ClientMessage['type'][] = [
     'authenticate', 'disconnect', 'createRoom', 'joinRoom', 'leaveRoom',
     'setReady', 'addAI', 'removePlayer', 'startGame', 'actionResponse',
-    'getState', 'ping'
+    'getState', 'ping', 'submitStatement', 'readyToVote'
   ];
 
   return typeof msg.type === 'string' && validTypes.includes(msg.type as ClientMessage['type']);
@@ -852,7 +899,7 @@ export function isServerMessage(data: unknown): data is ServerMessage {
     'roomClosed', 'gameStarted', 'phaseChange', 'gameState', 'actionRequired',
     'actionAcknowledged', 'actionTimeout', 'nightResult', 'statementMade',
     'votesRevealed', 'elimination', 'gameEnd', 'playerDisconnected',
-    'playerReconnected', 'pong'
+    'playerReconnected', 'pong', 'playerReadyToVote'
   ];
 
   return typeof msg.type === 'string' && validTypes.includes(msg.type as ServerMessage['type']);
