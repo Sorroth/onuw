@@ -52,6 +52,40 @@ import { ROLE_TEAMS } from '../core/Role';
  * ```
  */
 export class AIAgent extends AbstractAgent {
+  // =========================================================================
+  // MEMOIZED ROLE PATTERNS (Static - computed once)
+  // =========================================================================
+
+  /**
+   * @summary Pre-computed patterns for detecting role claims in statements.
+   *
+   * @description
+   * Instead of computing lowercase role patterns on every statement parse,
+   * we pre-compute them once when the class loads. This provides a small
+   * performance improvement when parsing many statements.
+   *
+   * Map structure: lowercase pattern -> RoleName
+   * Example: "i am the seer" -> RoleName.SEER
+   *
+   * @static
+   * @private
+   */
+  private static readonly ROLE_CLAIM_PATTERNS: Map<string, RoleName> = (() => {
+    const patterns = new Map<string, RoleName>();
+    for (const roleName of Object.values(RoleName)) {
+      const lowerRole = roleName.toLowerCase();
+      // "I am the Seer" pattern
+      patterns.set(`i am the ${lowerRole}`, roleName);
+      // "I am a Seer" pattern
+      patterns.set(`i am a ${lowerRole}`, roleName);
+    }
+    return patterns;
+  })();
+
+  // =========================================================================
+  // INSTANCE PROPERTIES
+  // =========================================================================
+
   /** Starting role for this agent */
   private readonly startingRole: RoleName;
 
@@ -435,15 +469,18 @@ export class AIAgent extends AbstractAgent {
 
   /**
    * @summary Parses statements to extract claims.
+   *
+   * @description
+   * Uses pre-computed role patterns for efficient claim detection.
+   * Patterns are memoized in ROLE_CLAIM_PATTERNS static property.
    */
   private parseStatements(statements: ReadonlyArray<PlayerStatement>): void {
     for (const stmt of statements) {
       const text = stmt.statement.toLowerCase();
 
-      // Simple claim detection
-      for (const roleName of Object.values(RoleName)) {
-        if (text.includes(`i am the ${roleName.toLowerCase()}`) ||
-            text.includes(`i am a ${roleName.toLowerCase()}`)) {
+      // Use memoized patterns for efficient claim detection
+      for (const [pattern, roleName] of AIAgent.ROLE_CLAIM_PATTERNS) {
+        if (text.includes(pattern)) {
           this.claims.set(stmt.playerId, roleName);
           break;
         }

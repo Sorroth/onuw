@@ -28,7 +28,7 @@
  */
 
 import { WebSocketServer, IWebSocketServerBackend, WebSocketServerConfig } from '../network/WebSocketServer';
-import { IClientConnection } from '../network/IClientConnection';
+import { IClientConnection, NullConnection } from '../network/IClientConnection';
 import {
   ClientMessage,
   ServerMessage,
@@ -622,24 +622,12 @@ export class GameServerFacade {
     }
 
     try {
-      // Create a dummy connection for AI players
+      // Create a null connection for AI players (Null Object Pattern)
       const aiId = `ai-${++this.aiPlayerCounter}`;
       const aiNames = ['Bot Alice', 'Bot Bob', 'Bot Charlie', 'Bot Diana', 'Bot Eve', 'Bot Frank'];
       const aiName = message.aiName || aiNames[this.aiPlayerCounter % aiNames.length];
 
-      const nullConnection: IClientConnection = {
-        id: aiId,
-        type: 'local',
-        state: 'connected',
-        send: () => {},
-        close: () => {},
-        isConnected: () => true,
-        onMessage: () => () => {},
-        onDisconnect: () => () => {},
-        onError: () => () => {},
-        getLatency: () => 0,
-        getConnectedAt: () => Date.now()
-      };
+      const nullConnection = NullConnection.create(aiId);
 
       room.addPlayer(aiId, aiName, nullConnection, true);
     } catch (error) {

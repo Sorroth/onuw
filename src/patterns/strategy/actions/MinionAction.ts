@@ -145,7 +145,13 @@ export class MinionAction extends AbstractNightAction {
     gameState: INightActionGameState
   ): Promise<NightActionResult> {
     // Find all Werewolves by STARTING role (not affected by swaps)
-    const werewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+    const startingWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+
+    // Also find Doppelgangers who copied Werewolf (Doppelganger acts at order 1, before Minion at order 3)
+    const doppelWerewolves = gameState.getDoppelgangersWhoCopied(RoleName.WEREWOLF);
+
+    // Combine both groups for the complete werewolf team
+    const werewolves = [...startingWerewolves, ...doppelWerewolves];
 
     return this.createSuccessResult(context.myPlayerId, {
       werewolves

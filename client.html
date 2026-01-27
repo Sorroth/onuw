@@ -427,12 +427,7 @@
               Note: Selected role must be included in the roles above
             </div>
             <div style="margin-top: 10px; font-size: 12px; color: #a78bfa;">
-              Debug mode captures all screen text. After game ends, use these to export:
-            </div>
-            <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px;">
-              <button onclick="copyTextSummary()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Copy Text Summary</button>
-              <button onclick="copyDebugStateToClipboard()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Copy Full JSON</button>
-              <button onclick="exportDebugState()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Download JSON</button>
+              Debug mode captures all screen text. Export buttons will appear on the results screen after the game ends.
             </div>
           </div>
         </div>
@@ -519,7 +514,15 @@
         <div class="final-roles" id="finalRoles"></div>
         <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
           <button onclick="backToLobby()">Back to Lobby</button>
-          <button onclick="copyDebugStateToClipboard()" class="secondary" id="debugExportBtn" style="display: none;">Copy Debug State</button>
+        </div>
+        <!-- Debug export buttons - shown when debug mode was enabled -->
+        <div id="debugExportBtns" style="display: none; margin-top: 15px; padding: 15px; background: #2a1a3a; border: 1px solid #a78bfa; border-radius: 8px;">
+          <div style="color: #a78bfa; font-size: 12px; margin-bottom: 10px;">Debug Mode Export:</div>
+          <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+            <button onclick="copyTextSummary()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Copy Text Summary</button>
+            <button onclick="copyDebugStateToClipboard()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Copy Full JSON</button>
+            <button onclick="exportDebugState()" class="secondary" style="font-size: 12px; padding: 6px 12px;">Download JSON</button>
+          </div>
         </div>
       </div>
 
@@ -542,9 +545,25 @@
           <div id="statementsList"></div>
         </div>
 
-        <div id="summaryVotes">
+        <div id="summaryVotes" style="margin-bottom: 20px;">
           <h4 style="color: #f59e0b; margin-bottom: 10px;">Final Votes</h4>
           <div id="votesList"></div>
+        </div>
+
+        <!-- Enhanced Audit Info -->
+        <div id="summaryWinConditions" style="margin-bottom: 20px;">
+          <h4 style="color: #ec4899; margin-bottom: 10px;">Win Condition Results</h4>
+          <div id="winConditionsList"></div>
+        </div>
+
+        <div id="summaryFinalTeams" style="margin-bottom: 20px;">
+          <h4 style="color: #8b5cf6; margin-bottom: 10px;">Final Team Assignments</h4>
+          <div id="finalTeamsList"></div>
+        </div>
+
+        <div id="summaryCardHistory">
+          <h4 style="color: #06b6d4; margin-bottom: 10px;">Card State After Each Night Action</h4>
+          <div id="cardHistoryList"></div>
         </div>
       </div>
     </div>
@@ -560,6 +579,9 @@
     let isHost = false;
     let currentRequest = null;
     let gameIdMapping = null; // Maps game IDs (player-1) to room IDs (player-abc123)
+    let isDebugModeEnabled = false; // Persists debug mode state across screens
+    let myEffectiveRole = null; // For Doppelganger: the role they copied (null if not Doppelganger or hasn't copied yet)
+    let roleCardUpdated = false; // Track if we've already updated the role card (prevents duplicate logs)
 
     // Debug state capture
     let debugState = {
@@ -661,6 +683,8 @@
 
         case 'gameStarted':
           showScreen('gameScreen');
+          // Capture debug mode state before game starts (checkbox may not be accessible later)
+          isDebugModeEnabled = $('debugMode')?.checked || false;
           // Reset debug state for new game
           debugState.screenCaptures = [];
           debugState.messages = [];
@@ -671,6 +695,9 @@
             gameIdMapping = msg.playerIdMapping;
             console.log('Stored player ID mapping:', gameIdMapping);
           }
+          // Reset effective role tracking for new game
+          myEffectiveRole = null;
+          roleCardUpdated = false;
           if (msg.view) {
             $('yourRole').textContent = msg.view.myStartingRole || '???';
             // Determine team from role
@@ -940,64 +967,83 @@
         case 'DOPPELGANGER':
           if (info.copied) {
             const targetName = getPlayerName(info.copied.fromPlayerId);
-            text += `Copied ${targetName}'s role: became ${info.copied.role}`;
-
-            // Show result of copied role's action
             const copiedRole = info.copied.role;
+
+            // Track the effective role for this player
+            myEffectiveRole = copiedRole;
+
+            // Update the role card to show the effective role and team
+            updateRoleCardForDoppelganger(copiedRole);
+
+            // Build formatted HTML output
+            let html = `<div style="margin-bottom: 4px;"><strong>Copied ${targetName}'s role</strong></div>`;
+            html += `<div style="margin-left: 12px; color: #a78bfa;">→ Became <strong>${copiedRole}</strong></div>`;
+
+            // Add follow-up action based on copied role
+            let actionHtml = '';
             if (copiedRole === 'ROBBER' && info.swapped && info.viewed && info.viewed.length > 1) {
-              // Doppel-Robber: show who they robbed and what they got
-              const robbedId = info.swapped.to.playerId;
-              const robbedName = getPlayerName(robbedId);
-              // The second viewed item is the new role after robbing
+              const robbedName = getPlayerName(info.swapped.to.playerId);
               const newRole = info.viewed[1]?.role || 'unknown';
-              text += `. Then robbed ${robbedName} and got ${newRole}`;
+              actionHtml = `→ Robbed <strong>${robbedName}</strong> and got <strong>${newRole}</strong>`;
             } else if (copiedRole === 'SEER' && info.viewed && info.viewed.length > 1) {
-              // Doppel-Seer: show what they saw (skip first item which is the copy target)
               const seerViews = info.viewed.slice(1);
               if (seerViews[0]?.playerId) {
                 const viewedName = getPlayerName(seerViews[0].playerId);
-                text += `. Then viewed ${viewedName}'s card: ${seerViews[0].role}`;
+                actionHtml = `→ Viewed <strong>${viewedName}</strong>'s card: <strong>${seerViews[0].role}</strong>`;
               } else if (seerViews.length >= 2) {
-                const cards = seerViews.map(v => `Card ${(v.centerIndex || 0) + 1} = ${v.role}`).join(', ');
-                text += `. Then viewed center: ${cards}`;
+                const cards = seerViews.map(v => `Card ${(v.centerIndex || 0) + 1} = <strong>${v.role}</strong>`).join(', ');
+                actionHtml = `→ Viewed center: ${cards}`;
               }
             } else if (copiedRole === 'TROUBLEMAKER' && info.swapped) {
-              // Doppel-Troublemaker: show who they swapped
               const name1 = getPlayerName(info.swapped.from.playerId);
               const name2 = getPlayerName(info.swapped.to.playerId);
-              text += `. Then swapped ${name1} and ${name2}'s cards`;
+              actionHtml = `→ Swapped <strong>${name1}</strong> ↔ <strong>${name2}</strong>`;
             } else if (copiedRole === 'DRUNK' && info.swapped && info.swapped.to.centerIndex !== undefined) {
-              // Doppel-Drunk: show which center card they swapped with
-              text += `. Then swapped with center card ${info.swapped.to.centerIndex + 1}`;
+              actionHtml = `→ Swapped with center card <strong>${info.swapped.to.centerIndex + 1}</strong>`;
             } else if (copiedRole === 'WEREWOLF') {
-              // Doppel-Werewolf: show other werewolves or center card peek
               if (info.werewolves && info.werewolves.length > 0) {
-                const names = info.werewolves.map(id => getPlayerName(id)).join(', ');
-                text += `. Saw Werewolf(s): ${names}`;
+                const names = info.werewolves.map(id => `<strong>${getPlayerName(id)}</strong>`).join(', ');
+                actionHtml = `→ Saw Werewolf(s): ${names}`;
               } else if (info.viewed && info.viewed.length > 1) {
-                // Skip first view (the copy target), second is center peek
                 const centerView = info.viewed[1];
                 if (centerView.centerIndex !== undefined) {
-                  text += `. Lone wolf - peeked at center card ${centerView.centerIndex + 1}: ${centerView.role}`;
+                  actionHtml = `→ Lone wolf: peeked at center card ${centerView.centerIndex + 1} = <strong>${centerView.role}</strong>`;
                 }
               }
             } else if (copiedRole === 'MINION' && info.werewolves) {
-              // Doppel-Minion: show werewolves
               if (info.werewolves.length > 0) {
-                const names = info.werewolves.map(id => getPlayerName(id)).join(', ');
-                text += `. Saw Werewolf(s): ${names}`;
+                const names = info.werewolves.map(id => `<strong>${getPlayerName(id)}</strong>`).join(', ');
+                actionHtml = `→ Saw Werewolf(s): ${names}`;
               } else {
-                text += `. No Werewolves among players`;
+                actionHtml = `→ No Werewolves among players`;
               }
             } else if (copiedRole === 'MASON' && info.masons !== undefined) {
-              // Doppel-Mason: show other masons
               if (info.masons.length > 0) {
-                const names = info.masons.map(id => getPlayerName(id)).join(', ');
-                text += `. Saw fellow Mason(s): ${names}`;
+                const names = info.masons.map(id => `<strong>${getPlayerName(id)}</strong>`).join(', ');
+                actionHtml = `→ Saw fellow Mason(s): ${names}`;
               } else {
-                text += `. No other Masons`;
+                actionHtml = `→ No other Masons`;
               }
             }
+
+            if (actionHtml) {
+              html += `<div style="margin-left: 12px; margin-top: 4px; color: #60a5fa;">${actionHtml}</div>`;
+            }
+
+            // Use innerHTML for Doppelganger (special formatted case)
+            div.innerHTML = html;
+            div.style.cssText = 'padding: 12px; background: rgba(167, 139, 250, 0.15); border-radius: 8px; margin: 8px 0; border-left: 3px solid #a78bfa;';
+            container.appendChild(div);
+
+            // Log a cleaner text version
+            let logText = `As DOPPELGANGER: Copied ${targetName} → became ${copiedRole}`;
+            if (actionHtml) {
+              logText += ` | ${actionHtml.replace(/<[^>]*>/g, '').replace('→ ', '')}`;
+            }
+            log(logText);
+
+            setTimeout(() => captureScreenText('nightInfo_displayed'), 10);
+            return; // Early return - we handled everything
           } else {
             text += 'Copied a role';
           }
@@ -1096,6 +1142,39 @@
 
       // Capture screen after night info is displayed
       setTimeout(() => captureScreenText('nightInfo_displayed'), 10);
+    }
+
+    // Check if a player ID (game or room ID) corresponds to our player
+    function isPlayerIdOurs(id) {
+      if (!id || !playerId) return false;
+      // Direct match
+      if (id === playerId) return true;
+      // Check via game ID mapping (game ID -> room ID)
+      if (gameIdMapping) {
+        const roomId = gameIdMapping[id];
+        if (roomId === playerId) return true;
+      }
+      return false;
+    }
+
+    // Update role card display when Doppelganger copies a role
+    function updateRoleCardForDoppelganger(copiedRole) {
+      // Only update once per game (prevents duplicate logs from partial/complete results)
+      if (roleCardUpdated) return;
+      roleCardUpdated = true;
+
+      // Update role display to show transformation
+      $('yourRole').textContent = `DOPPELGANGER → ${copiedRole}`;
+
+      // Determine and update team based on copied role
+      let team = 'VILLAGE';
+      if (copiedRole === 'WEREWOLF' || copiedRole === 'MINION') team = 'WEREWOLF';
+      if (copiedRole === 'TANNER') team = 'TANNER';
+
+      $('yourTeam').textContent = team + ' Team';
+      $('yourTeam').className = 'role-team ' + team;
+
+      log(`Your role card updated: now acting as ${copiedRole} on ${team} team`);
     }
 
     // Helper to get player name from ID (handles both game IDs and room IDs)
@@ -1407,10 +1486,10 @@
       showScreen('resultsScreen');
       log('Game ended!');
 
-      // Show debug export button if debug mode was enabled
-      const debugExportBtn = $('debugExportBtn');
-      if (debugExportBtn && $('debugMode')?.checked) {
-        debugExportBtn.style.display = 'inline-block';
+      // Show debug export buttons if debug mode was enabled
+      const debugExportBtns = $('debugExportBtns');
+      if (debugExportBtns && isDebugModeEnabled) {
+        debugExportBtns.style.display = 'block';
       }
 
       const result = msg.result || {};
@@ -1458,7 +1537,16 @@
           if (isEliminated) status = ' (Eliminated)';
           else if (isWinner) status = ' (Winner!)';
           const playerDisplayName = getPlayerName(pId);
-          div.innerHTML = `<strong>${playerDisplayName}</strong><br>${role}${status}`;
+
+          // Check if this is a Doppelganger with an effective role
+          // For our own player, we track myEffectiveRole; check via gameIdMapping
+          let roleDisplay = role;
+          const isOurPlayer = isPlayerIdOurs(pId);
+          if (role === 'DOPPELGANGER' && isOurPlayer && myEffectiveRole) {
+            roleDisplay = `DOPPELGANGER<br><span style="font-size: 12px; color: #a78bfa;">(acting as ${myEffectiveRole})</span>`;
+          }
+
+          div.innerHTML = `<strong>${playerDisplayName}</strong><br>${roleDisplay}${status}`;
           if (isWinner) div.style.color = '#4ade80';
           if (isEliminated) div.style.color = '#e94560';
           rolesEl.appendChild(div);
@@ -1554,6 +1642,111 @@
       } else {
         votesList.innerHTML = '<div style="color: #888;">No votes recorded</div>';
       }
+
+      // Display win condition results (enhanced audit)
+      const winConditionsList = $('winConditionsList');
+      winConditionsList.innerHTML = '';
+      if (summary.winConditionResults && summary.winConditionResults.length > 0) {
+        summary.winConditionResults.forEach(wc => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding: 8px 12px; margin: 4px 0; background: rgba(0,0,0,0.2); border-radius: 6px; border-left: 4px solid ' + (wc.won ? '#4ade80' : '#666') + ';';
+          const icon = wc.won ? '✓' : '✗';
+          const color = wc.won ? '#4ade80' : '#888';
+          div.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <strong style="color: ${color};">${icon} ${wc.team}</strong>
+              <span style="color: ${wc.won ? '#4ade80' : '#e94560'}; font-weight: bold;">${wc.won ? 'WON' : 'LOST'}</span>
+            </div>
+            <div style="margin-top: 4px; font-size: 13px; color: #aaa;">${wc.reason}</div>
+          `;
+          winConditionsList.appendChild(div);
+        });
+      } else {
+        winConditionsList.innerHTML = '<div style="color: #888;">No win condition data</div>';
+      }
+
+      // Display final team assignments (enhanced audit)
+      const finalTeamsList = $('finalTeamsList');
+      finalTeamsList.innerHTML = '';
+      if (summary.finalTeams && summary.finalTeams.length > 0) {
+        // Group by team
+        const teamGroups = {};
+        summary.finalTeams.forEach(player => {
+          if (!teamGroups[player.team]) teamGroups[player.team] = [];
+          teamGroups[player.team].push(player);
+        });
+
+        Object.entries(teamGroups).forEach(([team, players]) => {
+          const teamDiv = document.createElement('div');
+          teamDiv.style.cssText = 'margin-bottom: 12px;';
+          const teamColor = team === 'WEREWOLF' ? '#e94560' : team === 'TANNER' ? '#9b59b6' : '#3498db';
+          teamDiv.innerHTML = `<div style="font-weight: bold; color: ${teamColor}; margin-bottom: 6px;">${team} Team</div>`;
+
+          players.forEach(p => {
+            const pDiv = document.createElement('div');
+            pDiv.style.cssText = 'padding: 4px 8px; margin: 2px 0; background: rgba(255,255,255,0.05); border-radius: 4px; display: flex; justify-content: space-between;';
+            const winIcon = p.isWinner ? ' <span style="color: #4ade80;">★ Winner</span>' : '';
+
+            // Show effective role for Doppelganger (if it's our player)
+            let roleDisplay = p.finalRole;
+            if (p.finalRole === 'DOPPELGANGER' && p.playerId && isPlayerIdOurs(p.playerId) && myEffectiveRole) {
+              roleDisplay = `DOPPELGANGER → ${myEffectiveRole}`;
+            }
+
+            pDiv.innerHTML = `<span>${p.playerName}</span><span style="color: #888;">${roleDisplay}${winIcon}</span>`;
+            teamDiv.appendChild(pDiv);
+          });
+
+          finalTeamsList.appendChild(teamDiv);
+        });
+      } else {
+        finalTeamsList.innerHTML = '<div style="color: #888;">No team assignment data</div>';
+      }
+
+      // Display card state history (enhanced audit)
+      const cardHistoryList = $('cardHistoryList');
+      cardHistoryList.innerHTML = '';
+      if (summary.cardStateHistory && summary.cardStateHistory.length > 0) {
+        summary.cardStateHistory.forEach((snapshot, index) => {
+          const div = document.createElement('div');
+          div.style.cssText = 'padding: 10px; margin: 8px 0; background: rgba(0,0,0,0.2); border-radius: 6px; border-left: 4px solid #06b6d4;';
+
+          // Header: action info
+          const header = document.createElement('div');
+          header.style.cssText = 'font-weight: bold; color: #06b6d4; margin-bottom: 8px;';
+          // Handle system snapshots (phase boundaries) differently from player action snapshots
+          if (snapshot.actorName === 'System') {
+            header.textContent = snapshot.afterAction; // Just show "Night Phase Start" or "Night Phase End"
+          } else {
+            header.textContent = `After: ${snapshot.actorName}'s ${snapshot.actorRole} action (${snapshot.afterAction})`;
+          }
+          div.appendChild(header);
+
+          // Player cards
+          const playerCardsDiv = document.createElement('div');
+          playerCardsDiv.style.cssText = 'margin-bottom: 6px;';
+          playerCardsDiv.innerHTML = '<span style="color: #888; font-size: 12px;">Player Cards: </span>';
+          const playerCardsList = Object.entries(snapshot.playerCards)
+            .map(([pid, role]) => `<span style="color: #ddd;">${getPlayerName(pid)}</span>=<span style="color: #f472b6;">${role}</span>`)
+            .join(', ');
+          playerCardsDiv.innerHTML += playerCardsList;
+          div.appendChild(playerCardsDiv);
+
+          // Center cards
+          const centerCardsDiv = document.createElement('div');
+          centerCardsDiv.style.cssText = 'font-size: 13px;';
+          centerCardsDiv.innerHTML = '<span style="color: #888; font-size: 12px;">Center: </span>';
+          const centerCardsList = snapshot.centerCards
+            .map((role, i) => `<span style="color: #a78bfa;">Card${i+1}=${role}</span>`)
+            .join(', ');
+          centerCardsDiv.innerHTML += centerCardsList;
+          div.appendChild(centerCardsDiv);
+
+          cardHistoryList.appendChild(div);
+        });
+      } else {
+        cardHistoryList.innerHTML = '<div style="color: #888;">No card state history available</div>';
+      }
     }
 
     function backToLobby() {
@@ -1562,6 +1755,8 @@
       currentRoom = null;
       isReady = false;
       gameIdMapping = null;
+      myEffectiveRole = null; // Reset Doppelganger tracking
+      roleCardUpdated = false;
       // Don't reset debug state here - user might want to export after game ends
       $('nightInfo').innerHTML = '';
       $('statements').innerHTML = '<div id="noStatementsMsg" style="color: #888; font-style: italic;">Waiting for statements...</div>';

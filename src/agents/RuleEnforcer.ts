@@ -80,6 +80,17 @@ export class RuleEnforcer implements IAgent {
   private readonly violations: RuleViolationError[] = [];
 
   /**
+   * @summary Delegates to inner agent's isRemote property.
+   *
+   * @description
+   * The RuleEnforcer is a decorator and delegates to the wrapped agent
+   * to determine if it's remote.
+   */
+  get isRemote(): boolean {
+    return this.innerAgent.isRemote;
+  }
+
+  /**
    * @summary Creates a new RuleEnforcer.
    *
    * @param {IAgent} agent - Agent to wrap

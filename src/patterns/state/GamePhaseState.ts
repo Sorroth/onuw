@@ -68,6 +68,9 @@ export interface IGameContext {
 
   /** Log an event to the audit system */
   logAuditEvent(action: string, details: Record<string, unknown>): void;
+
+  /** Capture a phase boundary snapshot for audit (respects audit level) */
+  capturePhaseSnapshot(description: string): void;
 }
 
 /**
@@ -212,6 +215,25 @@ export interface IGamePhaseState {
    * ```
    */
   isValidAction(action: string): boolean;
+
+  /**
+   * @summary Gets the valid phases that can follow this phase.
+   *
+   * @description
+   * Returns an array of phase names that are valid transitions from
+   * this phase. Used to validate phase transitions and prevent
+   * invalid state changes.
+   *
+   * @returns {GamePhase[]} Array of valid next phase names
+   *
+   * @example
+   * ```typescript
+   * const validNext = currentState.getValidNextPhases();
+   * // For SetupPhase: [GamePhase.NIGHT]
+   * // For NightPhase: [GamePhase.DAY]
+   * ```
+   */
+  getValidNextPhases(): GamePhase[];
 }
 
 /**
@@ -318,5 +340,19 @@ export abstract class AbstractGamePhaseState implements IGamePhaseState {
    */
   isValidAction(action: string): boolean {
     return this.getValidActions().has(action);
+  }
+
+  /**
+   * @summary Gets valid next phases for this phase.
+   *
+   * @description
+   * Default implementation returns the phase from getNextState().
+   * Override in concrete classes if multiple transitions are possible.
+   *
+   * @returns {GamePhase[]} Array of valid next phase names
+   */
+  getValidNextPhases(): GamePhase[] {
+    const nextState = this.getNextState();
+    return nextState ? [nextState.getName()] : [];
   }
 }

@@ -179,6 +179,9 @@ export class DoppelgangerAction extends AbstractNightAction {
     // Look at the target's card
     const copiedRole = gameState.getPlayerRole(targetId);
 
+    // Record that this Doppelganger copied this role (for Werewolf/Mason visibility)
+    gameState.setDoppelgangerCopiedRole(context.myPlayerId, copiedRole);
+
     // Build the result info
     const resultInfo: NightActionInfo = {
       copied: {
@@ -418,7 +421,8 @@ export class DoppelgangerAction extends AbstractNightAction {
 
   /**
    * @summary Executes Werewolf action for Doppelganger.
-   * @description Doppel-Werewolf sees other starting werewolves, or peeks at center if lone wolf.
+   * @description Doppel-Werewolf sees other starting werewolves and other Doppel-Werewolves,
+   * or peeks at center if lone wolf.
    * @private
    */
   private async executeWerewolfAction(
@@ -427,14 +431,22 @@ export class DoppelgangerAction extends AbstractNightAction {
     gameState: INightActionGameState
   ): Promise<NightActionInfo> {
     // Find all players who STARTED as Werewolf
-    const allWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+    const startingWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+
+    // Also find other Doppelgangers who copied Werewolf before this one
+    // (Note: typically only one Doppelganger exists, but included for completeness)
+    const otherDoppelWerewolves = gameState.getDoppelgangersWhoCopied(RoleName.WEREWOLF)
+      .filter(id => id !== context.myPlayerId);
+
+    // Combine both groups
+    const allWerewolves = [...startingWerewolves, ...otherDoppelWerewolves];
 
     if (allWerewolves.length > 0) {
-      // Doppel-Werewolf sees the starting werewolves
+      // Doppel-Werewolf sees the starting werewolves and other Doppel-Werewolves
       return { werewolves: allWerewolves };
     }
 
-    // Lone wolf (no starting werewolves) - peek at a center card
+    // Lone wolf (no starting werewolves or other Doppel-Werewolves) - peek at a center card
     const centerIndex = await agent.selectCenterCard(context);
     const centerRole = gameState.getCenterCard(centerIndex);
 
@@ -449,7 +461,7 @@ export class DoppelgangerAction extends AbstractNightAction {
 
   /**
    * @summary Executes Minion action for Doppelganger.
-   * @description Doppel-Minion sees who the starting werewolves are.
+   * @description Doppel-Minion sees all werewolves (starting + other Doppel-Werewolves).
    * @private
    */
   private executeMinionAction(
@@ -457,7 +469,14 @@ export class DoppelgangerAction extends AbstractNightAction {
     gameState: INightActionGameState
   ): NightActionInfo {
     // Find all players who STARTED as Werewolf
-    const werewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+    const startingWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+
+    // Also find other Doppelgangers who copied Werewolf
+    // (Note: this Doppelganger is copying Minion, so they wouldn't be in this list)
+    const doppelWerewolves = gameState.getDoppelgangersWhoCopied(RoleName.WEREWOLF);
+
+    // Combine for complete werewolf team
+    const werewolves = [...startingWerewolves, ...doppelWerewolves];
     return { werewolves };
   }
 

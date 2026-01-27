@@ -190,7 +190,20 @@ export class WerewolfWinCondition extends AbstractWinCondition {
     }
 
     // CASE 3: No Werewolves AND no Minion among players
-    // Werewolf team cannot win - no members
+    // Check if someone was killed - if so, Werewolves win (strict ONUW rules)
+    // Village failed by killing an innocent when there was no threat
+    if (context.eliminatedPlayers.length > 0) {
+      // Werewolf cards in center "win" - but no players to receive the victory
+      // Return empty winners array but still mark as won
+      return {
+        team: this.getTeam(),
+        won: true,
+        winners: [], // No werewolf players to claim victory
+        reason: 'No Werewolves exist among players, but Village killed an innocent'
+      };
+    }
+
+    // No one was killed - Village wins, Werewolves lose
     return this.createLossResult(
       'No Werewolf team members exist among players'
     );

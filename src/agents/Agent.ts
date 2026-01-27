@@ -60,6 +60,18 @@ export interface IAgent {
   readonly id: string;
 
   /**
+   * @summary Indicates if this agent is backed by a remote connection.
+   *
+   * @description
+   * - true: NetworkAgent (human player over WebSocket)
+   * - false: AI agents (RandomAgent, AIAgent)
+   *
+   * Used to determine behavior during day phase (real-time vs sequential).
+   * @readonly
+   */
+  readonly isRemote: boolean;
+
+  /**
    * @summary Selects a player from available options.
    *
    * @description
@@ -241,6 +253,9 @@ export interface IAgent {
 export abstract class AbstractAgent implements IAgent {
   /** The player ID this agent controls */
   public readonly id: string;
+
+  /** Indicates this is a local (non-network) agent */
+  public readonly isRemote: boolean = false;
 
   /** Night action results received */
   protected nightInfo: NightActionResult[] = [];

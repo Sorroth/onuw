@@ -85,6 +85,12 @@ export class NetworkAgent implements IAgent {
   readonly id: string;
 
   /**
+   * @summary Indicates this is a remote (network-backed) agent.
+   * @readonly
+   */
+  readonly isRemote: boolean = true;
+
+  /**
    * @summary WebSocket connection to the remote player.
    * @private
    */

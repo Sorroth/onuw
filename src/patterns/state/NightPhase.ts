@@ -118,12 +118,16 @@ export class NightPhase extends AbstractGamePhaseState {
    * @summary Called when entering night phase.
    *
    * @description
-   * Logs the start of night and resets processed orders.
+   * Logs the start of night, resets processed orders, and captures
+   * a phase boundary snapshot for audit (if audit level is 'standard' or higher).
    *
    * @param {IGameContext} context - The game context
    */
   async enter(context: IGameContext): Promise<void> {
     this.processedOrders.clear();
+
+    // Capture pre-night snapshot for standard audit level
+    context.capturePhaseSnapshot('Night Phase Start');
 
     context.logAuditEvent('NIGHT_STARTED', {
       phase: this.getName(),
@@ -196,11 +200,15 @@ export class NightPhase extends AbstractGamePhaseState {
    * @summary Called when exiting night phase.
    *
    * @description
-   * Logs the end of night and prepares for day discussion.
+   * Logs the end of night, captures a post-night snapshot for audit
+   * (if audit level is 'standard' or higher), and prepares for day discussion.
    *
    * @param {IGameContext} context - The game context
    */
   async exit(context: IGameContext): Promise<void> {
+    // Capture post-night snapshot for standard audit level
+    context.capturePhaseSnapshot('Night Phase End');
+
     context.logAuditEvent('NIGHT_ENDED', {
       phase: this.getName(),
       nextPhase: GamePhase.DAY,

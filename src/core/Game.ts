@@ -53,7 +53,8 @@ import {
   NightActionContext,
   PlayerStatement,
   VotingContext,
-  DayContext
+  DayContext,
+  AuditLevel
 } from '../types';
 import { Role, ROLE_TEAMS } from './Role';
 import { Player } from './Player';
@@ -70,8 +71,10 @@ import {
   WerewolfWinCondition,
   TannerWinCondition,
   WinConditionContext,
-  PlayerWinInfo
+  PlayerWinInfo,
+  WinConditionResult
 } from '../patterns';
+import { GameStateSnapshot } from '../audit/GameStateSnapshot';
 
 /**
  * @summary Interface for game agents (AI or human).
@@ -81,6 +84,17 @@ import {
  */
 export interface IGameAgent {
   readonly id: string;
+
+  /**
+   * @summary Indicates if this agent is backed by a remote connection.
+   *
+   * @description
+   * - true: NetworkAgent (human player over WebSocket)
+   * - false: AI agents (RandomAgent, AIAgent)
+   *
+   * Used to determine behavior during day phase (real-time vs sequential).
+   */
+  readonly isRemote: boolean;
 
   // Night action decisions
   selectPlayer(options: string[], context: NightActionContext): Promise<string>;
@@ -162,6 +176,41 @@ export class Game implements IGameContext, INightActionGameState {
   /** Audit log callback */
   private auditCallback?: (action: string, details: Record<string, unknown>) => void;
 
+  /** Card state history for audit - snapshots based on audit level */
+  private readonly cardStateHistory: Array<{
+    snapshot: GameStateSnapshot;
+    actionDescription: string;
+    actorName: string;
+    actorRole: RoleName;
+  }> = [];
+
+  /** Stored win condition results (populated when game resolves) */
+  private winConditionResults: WinConditionResult[] = [];
+
+  /**
+   * @summary Tracks what role each Doppelganger copied during night phase.
+   *
+   * @description
+   * Maps player ID to the role they copied. This is used to allow
+   * Werewolves to see Doppelganger-Werewolves as fellow pack members.
+   *
+   * @private
+   */
+  private readonly doppelgangerCopiedRoles: Map<string, RoleName> = new Map();
+
+  /**
+   * @summary Audit logging level for card state snapshots.
+   *
+   * @description
+   * Controls snapshot frequency:
+   * - minimal: No snapshots during gameplay
+   * - standard: Snapshots at phase boundaries only
+   * - verbose: Snapshots after every night action
+   *
+   * @private
+   */
+  private readonly auditLevel: AuditLevel;
+
   /**
    * @summary Creates a new Game instance.
    *
@@ -182,6 +231,7 @@ export class Game implements IGameContext, INightActionGameState {
     this.config = config;
     this.eventEmitter = new GameEventEmitter();
     this.currentPhaseState = new SetupPhase();
+    this.auditLevel = config.auditLevel ?? 'standard';
 
     this.validateConfig();
     this.setupGame();
@@ -351,25 +401,37 @@ export class Game implements IGameContext, INightActionGameState {
       this.config.roles.map(r => r.toString())
     );
 
-    // Execute all phases
-    while (this.currentPhaseState !== null) {
-      await this.currentPhaseState.enter(this);
-      await this.currentPhaseState.execute(this);
-      await this.currentPhaseState.exit(this);
+    try {
+      // Execute all phases
+      while (this.currentPhaseState !== null) {
+        await this.currentPhaseState.enter(this);
+        await this.currentPhaseState.execute(this);
+        await this.currentPhaseState.exit(this);
 
-      const nextState = this.currentPhaseState.getNextState();
-      if (nextState) {
-        this.eventEmitter.emitPhaseChanged(
-          this.currentPhaseState.getName(),
-          nextState.getName()
-        );
-        this.currentPhaseState = nextState;
-      } else {
-        break;
+        const nextState = this.currentPhaseState.getNextState();
+        if (nextState) {
+          this.eventEmitter.emitPhaseChanged(
+            this.currentPhaseState.getName(),
+            nextState.getName()
+          );
+          this.currentPhaseState = nextState;
+        } else {
+          break;
+        }
       }
-    }
 
-    return this.getGameResult();
+      return this.getGameResult();
+    } catch (error) {
+      // Log the error and emit an error event before re-throwing
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.logAuditEvent('GAME_ERROR', {
+        phase: this.currentPhaseState?.getName() || 'unknown',
+        error: err.message,
+        stack: err.stack
+      });
+      this.eventEmitter.emitError('Game execution failed', err);
+      throw error;
+    }
   }
 
   /**
@@ -398,6 +460,20 @@ export class Game implements IGameContext, INightActionGameState {
   }
 
   setPhaseState(state: IGamePhaseState): void {
+    // Validate phase transition if there's a current phase
+    if (this.currentPhaseState !== null) {
+      const validNextPhases = this.currentPhaseState.getValidNextPhases();
+      const newPhaseName = state.getName();
+
+      if (!validNextPhases.includes(newPhaseName)) {
+        const currentPhaseName = this.currentPhaseState.getName();
+        throw new Error(
+          `Invalid phase transition: ${currentPhaseName} → ${newPhaseName}. ` +
+          `Valid transitions: ${validNextPhases.join(', ') || 'none'}`
+        );
+      }
+    }
+
     this.currentPhaseState = state;
   }
 
@@ -470,6 +546,17 @@ export class Game implements IGameContext, INightActionGameState {
       results.push(result);
       this.nightResults.set(player.id, results);
 
+      // Capture card state snapshot after the action for audit (verbose level only)
+      if (this.auditLevel === 'verbose') {
+        const snapshot = new GameStateSnapshot(this.getState());
+        this.cardStateHistory.push({
+          snapshot,
+          actionDescription: result.actionType,
+          actorName: player.name,
+          actorRole: player.startingRole.name
+        });
+      }
+
       // Notify agent
       agent.receiveNightInfo(result);
 
@@ -504,10 +591,10 @@ export class Game implements IGameContext, INightActionGameState {
    * - Sequential mode: Collect from AI agents immediately
    */
   async collectStatements(): Promise<void> {
-    // Check if we have any human agents (NetworkAgents)
+    // Check if we have any human agents (remote agents)
     // If all agents are AI, collect sequentially for backward compatibility
     const hasHumanPlayers = Array.from(this.agents.values()).some(
-      agent => agent.constructor.name === 'NetworkAgent'
+      agent => agent.isRemote
     );
 
     if (hasHumanPlayers) {
@@ -577,8 +664,8 @@ export class Game implements IGameContext, INightActionGameState {
     for (const playerId of this.playerOrder) {
       const agent = this.agents.get(playerId)!;
 
-      // Only collect from AI agents (non-NetworkAgents)
-      if (agent.constructor.name !== 'NetworkAgent') {
+      // Only collect from AI agents (non-remote agents)
+      if (!agent.isRemote) {
         const player = this.players.get(playerId)!;
 
         // Build player names map
@@ -787,6 +874,86 @@ export class Game implements IGameContext, INightActionGameState {
   }
 
   /**
+   * @summary Records that a Doppelganger copied a specific role.
+   *
+   * @description
+   * Called by DoppelgangerAction when a player copies a role.
+   * This allows other roles (like Werewolf) to identify Doppelgangers
+   * who have joined their team.
+   *
+   * @param {string} playerId - The Doppelganger player's ID
+   * @param {RoleName} role - The role that was copied
+   *
+   * @example
+   * ```typescript
+   * // In DoppelgangerAction after copying Werewolf:
+   * gameState.setDoppelgangerCopiedRole('player-2', RoleName.WEREWOLF);
+   * ```
+   */
+  setDoppelgangerCopiedRole(playerId: string, role: RoleName): void {
+    this.doppelgangerCopiedRoles.set(playerId, role);
+    this.logAuditEvent('DOPPELGANGER_COPIED_ROLE', { playerId, copiedRole: role });
+  }
+
+  /**
+   * @summary Gets all Doppelgangers who copied a specific role.
+   *
+   * @description
+   * Returns player IDs of Doppelgangers who copied the specified role.
+   * Used by Werewolf action to see Doppelganger-Werewolves as teammates.
+   *
+   * @param {RoleName} role - The role to search for
+   *
+   * @returns {string[]} Player IDs of Doppelgangers who copied this role
+   *
+   * @example
+   * ```typescript
+   * // In WerewolfAction to find Doppel-Werewolves:
+   * const doppelWerewolves = gameState.getDoppelgangersWhoCopied(RoleName.WEREWOLF);
+   * ```
+   */
+  getDoppelgangersWhoCopied(role: RoleName): string[] {
+    const result: string[] = [];
+    for (const [playerId, copiedRole] of this.doppelgangerCopiedRoles) {
+      if (copiedRole === role) {
+        result.push(playerId);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * @summary Gets the effective team for a player, accounting for Doppelganger.
+   *
+   * @description
+   * For most players, this returns their current card's team.
+   * For Doppelgangers, this returns the team of the role they copied,
+   * since a Doppelganger who copies Werewolf should be on Werewolf team.
+   *
+   * @param {string} playerId - The player's ID
+   *
+   * @returns {Team} The effective team for win conditions
+   *
+   * @private
+   */
+  private getEffectiveTeam(playerId: string): Team {
+    const player = this.players.get(playerId);
+    if (!player) {
+      throw new Error(`Player ${playerId} not found`);
+    }
+
+    // Check if this player is a Doppelganger who copied a role
+    const copiedRole = this.doppelgangerCopiedRoles.get(playerId);
+    if (copiedRole) {
+      // Return the team of the copied role
+      return ROLE_TEAMS[copiedRole];
+    }
+
+    // Otherwise, return the team based on current card
+    return player.getTeam();
+  }
+
+  /**
    * @summary Gets the card at a position.
    *
    * @private
@@ -829,12 +996,13 @@ export class Game implements IGameContext, INightActionGameState {
    */
   private getGameResult(): GameResult {
     // Build win condition context
+    // Note: Use getEffectiveTeam() to handle Doppelganger's team based on copied role
     const allPlayers: PlayerWinInfo[] = this.playerOrder.map(id => {
       const player = this.players.get(id)!;
       return {
         playerId: id,
         currentRole: player.currentRole.name,
-        team: player.getTeam(),
+        team: this.getEffectiveTeam(id),
         isEliminated: !player.isAlive
       };
     });
@@ -858,6 +1026,9 @@ export class Game implements IGameContext, INightActionGameState {
     // Evaluate all win conditions
     const winResults = this.winConditions.map(wc => wc.evaluate(context));
     const winners = winResults.filter(r => r.won);
+
+    // Store win condition results for audit
+    this.winConditionResults = winResults;
 
     // Build final result
     const winningTeams = winners.map(w => w.team);
@@ -1063,6 +1234,110 @@ export class Game implements IGameContext, INightActionGameState {
       throw new Error(`Player ${playerId} not found`);
     }
     this.agents.set(playerId, newAgent);
+  }
+
+  // =========================================================================
+  // AUDIT DATA ACCESS
+  // =========================================================================
+
+  /**
+   * @summary Captures a phase boundary snapshot for 'standard' audit level.
+   *
+   * @description
+   * Called at the start and end of night phase to capture card states
+   * without the overhead of per-action snapshots.
+   *
+   * @param {string} description - Description of the phase boundary
+   *
+   * @example
+   * ```typescript
+   * game.capturePhaseSnapshot('Night Phase Start');
+   * // ... execute night actions ...
+   * game.capturePhaseSnapshot('Night Phase End');
+   * ```
+   */
+  capturePhaseSnapshot(description: string): void {
+    // 'minimal' level captures no snapshots
+    // 'verbose' level captures per-action (handled in executeNightActionForPlayer)
+    // 'standard' level captures at phase boundaries
+    if (this.auditLevel === 'minimal') {
+      return;
+    }
+
+    const snapshot = new GameStateSnapshot(this.getState());
+    this.cardStateHistory.push({
+      snapshot,
+      actionDescription: description,
+      actorName: 'System',
+      actorRole: RoleName.VILLAGER // Placeholder for system-level snapshots
+    });
+  }
+
+  /**
+   * @summary Gets card state history for audit.
+   *
+   * @description
+   * Returns snapshots of card states after each night action.
+   * Used for verifying strict rule compliance.
+   *
+   * @returns {Array} Card state history with action descriptions
+   */
+  getCardStateHistory(): Array<{
+    snapshot: GameStateSnapshot;
+    actionDescription: string;
+    actorName: string;
+    actorRole: RoleName;
+  }> {
+    return [...this.cardStateHistory];
+  }
+
+  /**
+   * @summary Gets win condition evaluation results.
+   *
+   * @description
+   * Returns the results of evaluating each team's win condition,
+   * including the reasoning for why each team won or lost.
+   *
+   * @returns {WinConditionResult[]} Win condition results with reasons
+   */
+  getWinConditionResults(): WinConditionResult[] {
+    return [...this.winConditionResults];
+  }
+
+  /**
+   * @summary Gets final team assignments for all players.
+   *
+   * @description
+   * Returns each player's final role and team based on card swaps,
+   * along with whether they won.
+   *
+   * @returns {Array} Team assignment info for each player
+   */
+  getFinalTeamAssignments(): Array<{
+    playerId: string;
+    playerName: string;
+    finalRole: RoleName;
+    team: Team;
+    isWinner: boolean;
+  }> {
+    const winningTeams = this.winConditionResults
+      .filter(r => r.won)
+      .map(r => r.team);
+
+    return this.playerOrder.map(playerId => {
+      const player = this.players.get(playerId)!;
+      // Use getEffectiveTeam to handle Doppelganger's team based on copied role
+      const team = this.getEffectiveTeam(playerId);
+      const isWinner = winningTeams.includes(team);
+
+      return {
+        playerId,
+        playerName: player.name,
+        finalRole: player.currentRole.name,
+        team,
+        isWinner
+      };
+    });
   }
 
   /**

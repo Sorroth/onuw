@@ -58,6 +58,12 @@ export interface INightActionGameState {
 
   /** Get all player IDs */
   getAllPlayerIds(): string[];
+
+  /** Record that a Doppelganger copied a specific role (called by DoppelgangerAction) */
+  setDoppelgangerCopiedRole(playerId: string, role: RoleName): void;
+
+  /** Get all Doppelgangers who copied a specific role (e.g., WEREWOLF) */
+  getDoppelgangersWhoCopied(role: RoleName): string[];
 }
 
 /**

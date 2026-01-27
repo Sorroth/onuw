@@ -38,7 +38,10 @@ import {
   PublicPlayerInfo,
   GameSummary,
   NightActionSummary,
-  DebugOptions
+  DebugOptions,
+  CardStateSnapshot,
+  WinConditionResult,
+  PlayerTeamAssignment
 } from '../network/protocol';
 import { RoleName, GamePhase, NIGHT_WAKE_ORDER } from '../enums';
 import { Game, IGameAgent } from '../core/Game';
@@ -936,11 +939,53 @@ export class Room {
       startingRoles[roomId] = role;
     }
 
+    // Build card state history for audit
+    const cardStateHistory: CardStateSnapshot[] = this.game.getCardStateHistory().map(entry => {
+      const snapshotObj = entry.snapshot.toObject();
+      // Map game player IDs to room player IDs in playerCards
+      const mappedPlayerCards: Record<PlayerId, RoleName> = {};
+      for (const [gameId, role] of Object.entries(snapshotObj.playerCards)) {
+        const roomId = this.gameToRoomPlayerMap.get(gameId) || gameId;
+        mappedPlayerCards[roomId] = role as RoleName;
+      }
+
+      return {
+        afterAction: entry.actionDescription,
+        actorName: entry.actorName,
+        actorRole: entry.actorRole,
+        playerCards: mappedPlayerCards,
+        centerCards: snapshotObj.centerCards as RoleName[]
+      };
+    });
+
+    // Get win condition results
+    const winConditionResults: WinConditionResult[] = this.game.getWinConditionResults().map(r => ({
+      team: r.team.toString(),
+      won: r.won,
+      reason: r.reason
+    }));
+
+    // Get final team assignments
+    const finalTeams: PlayerTeamAssignment[] = this.game.getFinalTeamAssignments().map(assignment => {
+      const roomId = this.gameToRoomPlayerMap.get(assignment.playerId) || assignment.playerId;
+      const playerName = playerNames.get(roomId) || roomId;
+      return {
+        playerId: roomId,
+        playerName,
+        finalRole: assignment.finalRole,
+        team: assignment.team.toString(),
+        isWinner: assignment.isWinner
+      };
+    });
+
     return {
       nightActions,
       statements,
       votes: votesByName,
-      startingRoles
+      startingRoles,
+      cardStateHistory,
+      winConditionResults,
+      finalTeams
     };
   }
 

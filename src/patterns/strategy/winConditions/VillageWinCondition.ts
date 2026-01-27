@@ -182,7 +182,7 @@ export class VillageWinCondition extends AbstractWinCondition {
     }
 
     // CASE 3: No Werewolves AND no Minion among players
-    // Village wins by default since there are no evil players to catch
+    // Village wins ONLY if no one was killed (strict ONUW rules)
     if (noOneKilled) {
       return this.createWinResult(
         villageMembers,
@@ -191,10 +191,9 @@ export class VillageWinCondition extends AbstractWinCondition {
     }
 
     // Someone was killed but there were no valid evil targets
-    // Village still wins by default since there was no evil to catch
-    return this.createWinResult(
-      villageMembers,
-      'No Werewolves or Minion exist among players; Village wins by default'
+    // Village LOSES because they killed an innocent villager (strict ONUW rules)
+    return this.createLossResult(
+      'No Werewolves or Minion exist among players, but Village killed an innocent'
     );
   }
 }

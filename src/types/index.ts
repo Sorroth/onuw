@@ -189,6 +189,26 @@ export interface GameState {
  * };
  * ```
  */
+/**
+ * @summary Audit logging level for card state snapshots.
+ *
+ * @description
+ * Controls how frequently the game captures card state snapshots:
+ * - `minimal`: No snapshots during gameplay (only final state)
+ * - `standard`: Snapshots at phase boundaries (before/after night phase)
+ * - `verbose`: Snapshots after every night action (most detailed)
+ *
+ * @example
+ * ```typescript
+ * const config: GameConfig = {
+ *   players: ['Alice', 'Bob', 'Charlie'],
+ *   roles: [...],
+ *   auditLevel: 'standard'  // Balanced logging
+ * };
+ * ```
+ */
+export type AuditLevel = 'minimal' | 'standard' | 'verbose';
+
 export interface GameConfig {
   /** Names of players participating in the game */
   readonly players: ReadonlyArray<string>;
@@ -202,6 +222,16 @@ export interface GameConfig {
    * Only used in debug/testing mode.
    */
   readonly forcedRoles?: ReadonlyMap<number, RoleName>;
+
+  /**
+   * Audit logging level for card state snapshots.
+   * - `minimal`: No snapshots (memory efficient, less audit detail)
+   * - `standard`: Snapshots at phase boundaries (default, balanced)
+   * - `verbose`: Snapshots after every action (detailed audit trail)
+   *
+   * @default 'standard'
+   */
+  readonly auditLevel?: AuditLevel;
 }
 
 // ============================================================================
@@ -385,12 +415,44 @@ export interface CardPosition {
 // ============================================================================
 
 /**
+ * @summary Base context shared by all agent decision points.
+ *
+ * @description
+ * Contains the common information available to an agent across all phases:
+ * - Player identity (myPlayerId, myStartingRole)
+ * - Game composition (rolesInGame)
+ *
+ * This base interface is extended by phase-specific contexts.
+ *
+ * @pattern Strategy Pattern - Different agent types process context differently
+ * @pattern Template Method Pattern - Base context defines common structure
+ *
+ * @example
+ * ```typescript
+ * function processContext(ctx: BaseAgentContext): void {
+ *   console.log(`Acting as ${ctx.myStartingRole} (${ctx.myPlayerId})`);
+ * }
+ * ```
+ */
+export interface BaseAgentContext {
+  /** The acting player's ID */
+  readonly myPlayerId: string;
+
+  /** The acting player's starting role name */
+  readonly myStartingRole: RoleName;
+
+  /** All roles that are in this game */
+  readonly rolesInGame: ReadonlyArray<RoleName>;
+}
+
+/**
  * @summary Context provided to an agent when making a night action decision.
  *
  * @description
  * Contains all information an agent needs to decide their night action.
  * Only includes information the player is allowed to know.
  *
+ * @extends BaseAgentContext
  * @pattern Strategy Pattern - Different agent types process context differently
  *
  * @example
@@ -404,18 +466,9 @@ export interface CardPosition {
  * };
  * ```
  */
-export interface NightActionContext {
-  /** The acting player's ID */
-  readonly myPlayerId: string;
-
-  /** The acting player's starting role name */
-  readonly myStartingRole: RoleName;
-
+export interface NightActionContext extends BaseAgentContext {
   /** IDs of all players in the game (excluding self for targeting) */
   readonly allPlayerIds: ReadonlyArray<string>;
-
-  /** All roles that are in this game */
-  readonly rolesInGame: ReadonlyArray<RoleName>;
 
   /** Previous night results this player has received (Doppelganger may have multiple) */
   readonly previousResults: ReadonlyArray<NightActionResult>;
@@ -426,6 +479,8 @@ export interface NightActionContext {
  *
  * @description
  * Contains information about what has been said and what the agent knows.
+ *
+ * @extends BaseAgentContext
  *
  * @example
  * ```typescript
@@ -441,21 +496,12 @@ export interface NightActionContext {
  * };
  * ```
  */
-export interface DayContext {
-  /** The acting player's ID */
-  readonly myPlayerId: string;
-
-  /** The acting player's starting role name */
-  readonly myStartingRole: RoleName;
-
+export interface DayContext extends BaseAgentContext {
   /** What this player learned during night (if anything) */
   readonly myNightInfo: NightActionResult | null;
 
   /** All statements made so far in the discussion */
   readonly statements: ReadonlyArray<PlayerStatement>;
-
-  /** All roles that are in this game */
-  readonly rolesInGame: ReadonlyArray<RoleName>;
 
   /** IDs of all players in the game */
   readonly allPlayerIds: ReadonlyArray<string>;
@@ -499,6 +545,8 @@ export interface PlayerStatement {
  * @description
  * Contains all information available when deciding who to vote for.
  *
+ * @extends BaseAgentContext
+ *
  * @example
  * ```typescript
  * const context: VotingContext = {
@@ -511,13 +559,7 @@ export interface PlayerStatement {
  * };
  * ```
  */
-export interface VotingContext {
-  /** The acting player's ID */
-  readonly myPlayerId: string;
-
-  /** The acting player's starting role name */
-  readonly myStartingRole: RoleName;
-
+export interface VotingContext extends BaseAgentContext {
   /** What this player learned during night */
   readonly myNightInfo: NightActionResult | null;
 
@@ -526,9 +568,6 @@ export interface VotingContext {
 
   /** Player IDs that can be voted for */
   readonly eligibleTargets: ReadonlyArray<string>;
-
-  /** All roles in the game */
-  readonly rolesInGame: ReadonlyArray<RoleName>;
 }
 
 /**

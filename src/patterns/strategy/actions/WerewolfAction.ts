@@ -168,7 +168,13 @@ export class WerewolfAction extends AbstractNightAction {
     gameState: INightActionGameState
   ): Promise<NightActionResult> {
     // Find all other Werewolves by STARTING role (not affected by swaps)
-    const allWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+    const startingWerewolves = gameState.getPlayersWithStartingRole(RoleName.WEREWOLF);
+
+    // Also find Doppelgangers who copied Werewolf (they wake at order 1, before us at order 2)
+    const doppelWerewolves = gameState.getDoppelgangersWhoCopied(RoleName.WEREWOLF);
+
+    // Combine both groups (no duplicates since starting werewolves can't be doppelgangers)
+    const allWerewolves = [...startingWerewolves, ...doppelWerewolves];
     const otherWerewolves = allWerewolves.filter(id => id !== context.myPlayerId);
 
     if (otherWerewolves.length > 0) {

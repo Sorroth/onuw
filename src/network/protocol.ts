@@ -763,6 +763,70 @@ export interface SummaryStatement {
 }
 
 /**
+ * @summary Card state snapshot after a night action.
+ *
+ * @description
+ * Records the state of all player cards and center cards
+ * after a specific night action has been executed.
+ */
+export interface CardStateSnapshot {
+  /** Which action triggered this snapshot */
+  readonly afterAction: string;
+
+  /** Player who performed the action */
+  readonly actorName: string;
+
+  /** Role that performed the action */
+  readonly actorRole: RoleName;
+
+  /** Player cards: playerId -> roleName */
+  readonly playerCards: Record<PlayerId, RoleName>;
+
+  /** Center cards */
+  readonly centerCards: readonly RoleName[];
+}
+
+/**
+ * @summary Win condition evaluation result.
+ *
+ * @description
+ * Explains why a team won or lost based on the game state.
+ */
+export interface WinConditionResult {
+  /** Team being evaluated */
+  readonly team: string;
+
+  /** Whether this team won */
+  readonly won: boolean;
+
+  /** Explanation of why the team won or lost */
+  readonly reason: string;
+}
+
+/**
+ * @summary Player's final team assignment.
+ *
+ * @description
+ * Shows what team a player ended up on based on their final card.
+ */
+export interface PlayerTeamAssignment {
+  /** Player ID */
+  readonly playerId: PlayerId;
+
+  /** Player display name */
+  readonly playerName: string;
+
+  /** Final card (after all swaps) */
+  readonly finalRole: RoleName;
+
+  /** Team based on final card */
+  readonly team: string;
+
+  /** Whether this player won */
+  readonly isWinner: boolean;
+}
+
+/**
  * @summary Complete game summary for post-game review.
  *
  * @description
@@ -770,6 +834,9 @@ export interface SummaryStatement {
  * - Night actions (what each role did)
  * - Day statements (what players claimed)
  * - Final votes (who voted for whom)
+ * - Card state after each night action (for audit)
+ * - Win condition reasoning
+ * - Final team assignments
  */
 export interface GameSummary {
   /** All night actions in wake order */
@@ -783,6 +850,15 @@ export interface GameSummary {
 
   /** Starting roles (before swaps) */
   readonly startingRoles: Record<PlayerId, RoleName>;
+
+  /** Card state after each night action (for audit verification) */
+  readonly cardStateHistory?: readonly CardStateSnapshot[];
+
+  /** Win condition evaluation for each team */
+  readonly winConditionResults?: readonly WinConditionResult[];
+
+  /** Final team assignment for each player */
+  readonly finalTeams?: readonly PlayerTeamAssignment[];
 }
 
 /**
