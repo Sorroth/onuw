@@ -426,6 +426,10 @@
             <div style="margin-top: 8px; font-size: 12px; color: #888;">
               Note: Selected role must be included in the roles above
             </div>
+            <label style="display: flex; align-items: center; gap: 8px; color: #ddd; margin-top: 12px;">
+              <input type="checkbox" id="debugForceBotsVote" style="width: auto; margin: 0;">
+              Force all bots to vote for you (for testing Hunter ability)
+            </label>
             <div style="margin-top: 10px; font-size: 12px; color: #a78bfa;">
               Debug mode captures all screen text. Export buttons will appear on the results screen after the game ends.
             </div>
@@ -803,6 +807,7 @@
       // Check debug mode
       const debugMode = $('debugMode').checked;
       const debugRole = debugMode ? $('debugRoleSelect').value : null;
+      const debugForceBotsVote = debugMode ? $('debugForceBotsVote').checked : false;
 
       // Validate debug role is in selected roles
       if (debugRole && !roles.includes(debugRole)) {
@@ -822,11 +827,16 @@
       };
 
       // Add debug info if enabled
-      if (debugRole) {
-        msg.debug = {
-          forceRole: debugRole
-        };
-        console.log('Debug mode: forcing role', debugRole);
+      if (debugRole || debugForceBotsVote) {
+        msg.debug = {};
+        if (debugRole) {
+          msg.debug.forceRole = debugRole;
+          console.log('Debug mode: forcing role', debugRole);
+        }
+        if (debugForceBotsVote) {
+          msg.debug.forceBotsVoteForHost = true;
+          console.log('Debug mode: bots will vote for host');
+        }
       }
 
       console.log('Sending:', msg);

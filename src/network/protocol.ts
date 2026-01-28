@@ -424,6 +424,8 @@ export interface DisconnectMessage extends TimestampedMessage {
 export interface DebugOptions {
   /** Force a specific starting role for the host player */
   readonly forceRole?: RoleName;
+  /** Force all bots to vote for the host player (for testing Hunter ability) */
+  readonly forceBotsVoteForHost?: boolean;
 }
 
 /**

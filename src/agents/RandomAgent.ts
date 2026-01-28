@@ -49,18 +49,25 @@ export class RandomAgent extends AbstractAgent {
   /** The role this agent will claim (set after receiving night info) */
   private claimedRole: RoleName | null = null;
 
+  /** Optional forced vote target (for debug/testing) */
+  private forcedVoteTarget: string | null = null;
+
   /**
    * @summary Creates a new RandomAgent.
    *
    * @param {string} id - Player ID to control
+   * @param {string} [forcedVoteTarget] - Optional player ID to always vote for (for testing)
    *
    * @example
    * ```typescript
    * const agent = new RandomAgent('player-1');
+   * // Or with forced vote target for testing Hunter ability:
+   * const agent = new RandomAgent('player-1', 'player-2');
    * ```
    */
-  constructor(id: string) {
+  constructor(id: string, forcedVoteTarget?: string) {
     super(id);
+    this.forcedVoteTarget = forcedVoteTarget || null;
   }
 
   /**
@@ -199,13 +206,17 @@ export class RandomAgent extends AbstractAgent {
   }
 
   /**
-   * @summary Randomly votes for a player.
+   * @summary Votes for a player (forced target or random).
    *
    * @param {VotingContext} context - Voting context
    *
-   * @returns {Promise<string>} Random eligible target
+   * @returns {Promise<string>} Forced target if set and eligible, otherwise random
    */
   async vote(context: VotingContext): Promise<string> {
+    // If forced vote target is set and is an eligible target, use it
+    if (this.forcedVoteTarget && context.eligibleTargets.includes(this.forcedVoteTarget)) {
+      return this.forcedVoteTarget;
+    }
     return this.randomChoice(context.eligibleTargets as string[]);
   }
 

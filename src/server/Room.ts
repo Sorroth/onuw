@@ -710,13 +710,24 @@ export class Room {
 
     // Create agents for all players
     const agents: Map<string, IGameAgent> = new Map();
+
+    // Determine forced vote target for bots if debug option is enabled
+    let forcedVoteTarget: string | undefined;
+    if (this.debugOptions?.forceBotsVoteForHost) {
+      // Get the host's game player ID
+      forcedVoteTarget = this.roomToGamePlayerMap.get(this.hostId);
+      if (forcedVoteTarget) {
+        console.log(`Debug: Bots will vote for host (game ID: ${forcedVoteTarget})`);
+      }
+    }
+
     for (const roomPlayer of playerList) {
       const gamePlayerId = this.roomToGamePlayerMap.get(roomPlayer.id);
       if (gamePlayerId) {
         if (roomPlayer.isAI) {
-          // AI player - use RandomAgent
-          console.log(`Creating RandomAgent for AI player ${gamePlayerId}`);
-          agents.set(gamePlayerId, new RandomAgent(gamePlayerId));
+          // AI player - use RandomAgent (with optional forced vote target)
+          console.log(`Creating RandomAgent for AI player ${gamePlayerId}${forcedVoteTarget ? ' (forced vote: ' + forcedVoteTarget + ')' : ''}`);
+          agents.set(gamePlayerId, new RandomAgent(gamePlayerId, forcedVoteTarget));
         } else {
           // Human player - use NetworkAgent
           console.log(`Creating NetworkAgent for human player ${gamePlayerId} (room: ${roomPlayer.id})`);
