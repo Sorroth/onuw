@@ -1112,9 +1112,9 @@ export class Room {
       }
 
       case RoleName.MASON: {
-        const otherMasons = info.otherMasons as string[] | undefined;
-        if (otherMasons && otherMasons.length > 0) {
-          const names = otherMasons.map(id => {
+        const masons = info.masons as string[] | undefined;
+        if (masons && masons.length > 0) {
+          const names = masons.map(id => {
             const roomId = this.gameToRoomPlayerMap.get(id) || id;
             return playerNames.get(roomId) || roomId;
           });

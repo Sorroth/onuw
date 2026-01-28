@@ -1118,8 +1118,8 @@
           break;
 
         case 'MASON':
-          if (info.otherMasons && info.otherMasons.length > 0) {
-            const names = info.otherMasons.map(id => getPlayerName(id)).join(', ');
+          if (info.masons && info.masons.length > 0) {
+            const names = info.masons.map(id => getPlayerName(id)).join(', ');
             text += `Saw fellow Mason(s): ${names}`;
           } else {
             text += 'No other Masons';
