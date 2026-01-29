@@ -24,7 +24,137 @@
  */
 
 import { GamePhase, RoleName, Team } from '../enums';
-import { PlayerStatement, NightActionResult, GameResult } from '../types';
+import { PlayerStatement, NightActionResult, GameResult, NightActionInfo, SwapInfo, ViewedCard } from '../types';
+
+// ============================================================================
+// ROLE-SPECIFIC NIGHT ACTION TYPES
+// ============================================================================
+
+/**
+ * @summary Werewolf night action info - sees other werewolves or lone wolf center view.
+ */
+export interface WerewolfNightInfo extends NightActionInfo {
+  /** Other werewolves seen (if not lone wolf) */
+  werewolves?: readonly string[];
+  /** Center cards viewed (lone wolf only) */
+  viewed?: readonly ViewedCard[];
+}
+
+/**
+ * @summary Minion night action info - sees werewolves but they don't see minion.
+ */
+export interface MinionNightInfo extends NightActionInfo {
+  /** Werewolves seen */
+  werewolves?: readonly string[];
+}
+
+/**
+ * @summary Mason night action info - sees other masons.
+ */
+export interface MasonNightInfo extends NightActionInfo {
+  /** Other masons seen */
+  masons?: readonly string[];
+}
+
+/**
+ * @summary Seer night action info - views player or center cards.
+ */
+export interface SeerNightInfo extends NightActionInfo {
+  /** Cards viewed (1 player or 2 center) */
+  viewed?: readonly ViewedCard[];
+}
+
+/**
+ * @summary Robber night action info - swaps and views new card.
+ */
+export interface RobberNightInfo extends NightActionInfo {
+  /** Swap performed (self with target) */
+  swapped?: SwapInfo;
+  /** New role after swap */
+  viewed?: readonly ViewedCard[];
+}
+
+/**
+ * @summary Troublemaker night action info - swaps two other players' cards.
+ *
+ * @description
+ * Server sends: { swapped: { from: { playerId }, to: { playerId } } }
+ * The troublemaker does NOT see what the cards are.
+ */
+export interface TroublemakerNightInfo extends NightActionInfo {
+  /** Players whose cards were swapped */
+  swapped?: SwapInfo;
+}
+
+/**
+ * @summary Drunk night action info - swaps with center card (doesn't see).
+ */
+export interface DrunkNightInfo extends NightActionInfo {
+  /** Swap with center card */
+  swapped?: SwapInfo;
+}
+
+/**
+ * @summary Insomniac night action info - views own final card.
+ */
+export interface InsomniacNightInfo extends NightActionInfo {
+  /** Own card viewed at end of night */
+  viewed?: readonly ViewedCard[];
+}
+
+/**
+ * @summary Doppelganger night action info - copies another player's role.
+ */
+export interface DoppelgangerNightInfo extends NightActionInfo {
+  /** Role that was copied */
+  copied?: {
+    readonly fromPlayerId: string;
+    readonly role: RoleName;
+  };
+  /** Additional info from performing copied role's action */
+  viewed?: readonly ViewedCard[];
+  swapped?: SwapInfo;
+  werewolves?: readonly string[];
+  masons?: readonly string[];
+}
+
+/**
+ * @summary Tanner night action info - no action (wakes but does nothing).
+ */
+export interface TannerNightInfo extends NightActionInfo {
+  // Tanner has no night action
+}
+
+/**
+ * @summary Hunter night action info - no night action.
+ */
+export interface HunterNightInfo extends NightActionInfo {
+  // Hunter has no night action (special death ability only)
+}
+
+/**
+ * @summary Villager night action info - no night action.
+ */
+export interface VillagerNightInfo extends NightActionInfo {
+  // Villager has no night action
+}
+
+/**
+ * @summary Union of all role-specific night info types.
+ */
+export type RoleSpecificNightInfo =
+  | WerewolfNightInfo
+  | MinionNightInfo
+  | MasonNightInfo
+  | SeerNightInfo
+  | RobberNightInfo
+  | TroublemakerNightInfo
+  | DrunkNightInfo
+  | InsomniacNightInfo
+  | DoppelgangerNightInfo
+  | TannerNightInfo
+  | HunterNightInfo
+  | VillagerNightInfo;
 
 // ============================================================================
 // SHARED TYPES
@@ -535,6 +665,51 @@ export interface ReadyToVoteMessage extends TimestampedMessage {
 }
 
 /**
+ * @summary Login with email/password via WebSocket.
+ */
+export interface LoginMessage extends TimestampedMessage {
+  readonly type: 'login';
+  readonly email: string;
+  readonly password: string;
+}
+
+/**
+ * @summary Register new account via WebSocket.
+ */
+export interface RegisterMessage extends TimestampedMessage {
+  readonly type: 'register';
+  readonly email: string;
+  readonly password: string;
+  readonly displayName: string;
+}
+
+/**
+ * @summary Request player statistics.
+ */
+export interface GetStatsMessage extends TimestampedMessage {
+  readonly type: 'getStats';
+  /** User ID to get stats for. If omitted, returns own stats. */
+  readonly userId?: string;
+}
+
+/**
+ * @summary Request leaderboard data.
+ */
+export interface GetLeaderboardMessage extends TimestampedMessage {
+  readonly type: 'getLeaderboard';
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/**
+ * @summary Request game replay data.
+ */
+export interface GetReplayMessage extends TimestampedMessage {
+  readonly type: 'getReplay';
+  readonly gameId: string;
+}
+
+/**
  * @summary Union of all client message types.
  */
 export type ClientMessage =
@@ -551,7 +726,12 @@ export type ClientMessage =
   | GetStateMessage
   | PingMessage
   | SubmitStatementMessage
-  | ReadyToVoteMessage;
+  | ReadyToVoteMessage
+  | LoginMessage
+  | RegisterMessage
+  | GetStatsMessage
+  | GetLeaderboardMessage
+  | GetReplayMessage;
 
 // ============================================================================
 // SERVER → CLIENT MESSAGES
@@ -915,6 +1095,255 @@ export interface PlayerReadyToVoteMessage extends TimestampedMessage {
   readonly totalPlayers: number;
 }
 
+// ============================================================================
+// AUTHENTICATION RESPONSE MESSAGES
+// ============================================================================
+
+/**
+ * @summary Response to login request.
+ *
+ * @description
+ * Returns JWT token on successful authentication for subsequent requests.
+ *
+ * @pattern Repository Pattern - Uses SessionRepository for session management
+ */
+export interface LoginResponseMessage extends TimestampedMessage {
+  readonly type: 'loginResponse';
+  readonly success: boolean;
+  readonly token?: string;
+  readonly userId?: string;
+  readonly displayName?: string;
+  readonly error?: string;
+}
+
+/**
+ * @summary Response to registration request.
+ *
+ * @description
+ * Returns JWT token on successful registration, allowing immediate login.
+ *
+ * @pattern Repository Pattern - Uses UserRepository for user creation
+ */
+export interface RegisterResponseMessage extends TimestampedMessage {
+  readonly type: 'registerResponse';
+  readonly success: boolean;
+  readonly token?: string;
+  readonly userId?: string;
+  readonly error?: string;
+}
+
+// ============================================================================
+// STATISTICS RESPONSE MESSAGES
+// ============================================================================
+
+/**
+ * @summary Role-specific statistics.
+ *
+ * @description
+ * Statistics for a single role, following 6NF decomposition pattern.
+ */
+export interface RoleStatEntry {
+  readonly roleCode: string;
+  readonly roleName: string;
+  readonly gamesPlayed: number;
+  readonly wins: number;
+  readonly winRate: number;
+}
+
+/**
+ * @summary Team-specific statistics.
+ *
+ * @description
+ * Statistics for a single team, following 6NF decomposition pattern.
+ */
+export interface TeamStatEntry {
+  readonly teamCode: string;
+  readonly teamName: string;
+  readonly gamesPlayed: number;
+  readonly wins: number;
+  readonly winRate: number;
+}
+
+/**
+ * @summary Player statistics data.
+ *
+ * @description
+ * Aggregated player statistics across all games.
+ */
+export interface PlayerStatsData {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly gamesPlayed: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly winRate: number;
+  readonly currentStreak: number;
+  readonly bestStreak: number;
+  readonly roleStats: readonly RoleStatEntry[];
+  readonly teamStats: readonly TeamStatEntry[];
+}
+
+/**
+ * @summary Response to stats request.
+ *
+ * @description
+ * Returns comprehensive player statistics including role and team breakdowns.
+ *
+ * @pattern Repository Pattern - Uses StatisticsRepository for data access
+ */
+export interface StatsResponseMessage extends TimestampedMessage {
+  readonly type: 'statsResponse';
+  readonly stats: PlayerStatsData | null;
+  readonly error?: string;
+}
+
+/**
+ * @summary Leaderboard entry.
+ *
+ * @description
+ * Single entry in the leaderboard ranking.
+ */
+export interface LeaderboardEntry {
+  readonly rank: number;
+  readonly userId: string;
+  readonly displayName: string;
+  readonly gamesPlayed: number;
+  readonly wins: number;
+  readonly winRate: number;
+}
+
+/**
+ * @summary Response to leaderboard request.
+ *
+ * @description
+ * Returns paginated leaderboard entries sorted by win rate.
+ *
+ * @pattern Repository Pattern - Uses StatisticsRepository for leaderboard query
+ */
+export interface LeaderboardResponseMessage extends TimestampedMessage {
+  readonly type: 'leaderboardResponse';
+  readonly entries: readonly LeaderboardEntry[];
+  readonly error?: string;
+}
+
+// ============================================================================
+// REPLAY RESPONSE MESSAGES
+// ============================================================================
+
+/**
+ * @summary Night action target in replay.
+ *
+ * @description
+ * Target of a night action, following 6NF decomposition.
+ */
+export interface ReplayActionTarget {
+  readonly targetType: string;
+  readonly targetPlayerId?: string;
+  readonly targetCenterPosition?: number;
+}
+
+/**
+ * @summary Night action view result in replay.
+ *
+ * @description
+ * Information viewed during a night action, following 6NF decomposition.
+ */
+export interface ReplayActionView {
+  readonly viewSourceType: string;
+  readonly viewedRole: string;
+}
+
+/**
+ * @summary Night action swap in replay.
+ *
+ * @description
+ * Card swap performed during a night action.
+ */
+export interface ReplayActionSwap {
+  readonly fromType: string;
+  readonly toType: string;
+}
+
+/**
+ * @summary Night action copy in replay.
+ *
+ * @description
+ * Role copy performed during a night action (Doppelganger).
+ */
+export interface ReplayActionCopy {
+  readonly copiedFromPlayerId: string;
+  readonly copiedRole: string;
+}
+
+/**
+ * @summary Night action in replay.
+ *
+ * @description
+ * Complete night action record following 6NF decomposition pattern.
+ * Multi-valued attributes (targets, views) are stored in separate tables.
+ */
+export interface ReplayNightAction {
+  readonly actorPlayerId: string;
+  readonly performedAsRole: string;
+  readonly actionType: string;
+  readonly sequenceOrder: number;
+  readonly targets: readonly ReplayActionTarget[];
+  readonly views: readonly ReplayActionView[];
+  readonly swap?: ReplayActionSwap;
+  readonly copy?: ReplayActionCopy;
+}
+
+/**
+ * @summary Statement in replay.
+ *
+ * @description
+ * Statement made during the day phase.
+ */
+export interface ReplayStatement {
+  readonly speakerPlayerId: string;
+  readonly text: string;
+  readonly sequenceOrder: number;
+}
+
+/**
+ * @summary Vote in replay.
+ *
+ * @description
+ * Vote cast during the voting phase.
+ */
+export interface ReplayVote {
+  readonly voterPlayerId: string;
+  readonly targetPlayerId: string;
+}
+
+/**
+ * @summary Complete game replay data.
+ *
+ * @description
+ * All recorded actions, statements, and votes for full game reconstruction.
+ * Follows 6NF decomposition pattern for multi-valued attributes.
+ */
+export interface GameReplayData {
+  readonly nightActions: readonly ReplayNightAction[];
+  readonly statements: readonly ReplayStatement[];
+  readonly votes: readonly ReplayVote[];
+}
+
+/**
+ * @summary Response to replay request.
+ *
+ * @description
+ * Returns full game replay data for reconstruction and analysis.
+ *
+ * @pattern Repository Pattern - Uses ReplayRepository for 6NF data retrieval
+ */
+export interface ReplayResponseMessage extends TimestampedMessage {
+  readonly type: 'replayResponse';
+  readonly gameId: string;
+  readonly replay: GameReplayData | null;
+  readonly error?: string;
+}
+
 /**
  * @summary Union of all server message types.
  */
@@ -939,7 +1368,12 @@ export type ServerMessage =
   | PlayerDisconnectedMessage
   | PlayerReconnectedMessage
   | PongMessage
-  | PlayerReadyToVoteMessage;
+  | PlayerReadyToVoteMessage
+  | LoginResponseMessage
+  | RegisterResponseMessage
+  | StatsResponseMessage
+  | LeaderboardResponseMessage
+  | ReplayResponseMessage;
 
 // ============================================================================
 // TYPE GUARDS
@@ -957,7 +1391,8 @@ export function isClientMessage(data: unknown): data is ClientMessage {
   const validTypes: ClientMessage['type'][] = [
     'authenticate', 'disconnect', 'createRoom', 'joinRoom', 'leaveRoom',
     'setReady', 'addAI', 'removePlayer', 'startGame', 'actionResponse',
-    'getState', 'ping', 'submitStatement', 'readyToVote'
+    'getState', 'ping', 'submitStatement', 'readyToVote',
+    'login', 'register', 'getStats', 'getLeaderboard', 'getReplay'
   ];
 
   return typeof msg.type === 'string' && validTypes.includes(msg.type as ClientMessage['type']);
@@ -977,7 +1412,8 @@ export function isServerMessage(data: unknown): data is ServerMessage {
     'roomClosed', 'gameStarted', 'phaseChange', 'gameState', 'actionRequired',
     'actionAcknowledged', 'actionTimeout', 'nightResult', 'statementMade',
     'votesRevealed', 'elimination', 'gameEnd', 'playerDisconnected',
-    'playerReconnected', 'pong', 'playerReadyToVote'
+    'playerReconnected', 'pong', 'playerReadyToVote',
+    'loginResponse', 'registerResponse', 'statsResponse', 'leaderboardResponse', 'replayResponse'
   ];
 
   return typeof msg.type === 'string' && validTypes.includes(msg.type as ServerMessage['type']);

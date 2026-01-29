@@ -38,7 +38,9 @@ export type TimeoutActionType =
   | 'statement'
   | 'vote'
   | 'reconnection'
-  | 'lobbyReady';
+  | 'lobbyReady'
+  | 'dayPhase'
+  | 'votingPhase';
 
 /**
  * @summary Configuration for a timeout strategy.
@@ -82,7 +84,9 @@ export const CASUAL_STRATEGY: TimeoutStrategyConfig = {
     statement: 180000,     // 3 minutes
     vote: 90000,           // 90 seconds
     reconnection: 60000,   // 1 minute
-    lobbyReady: 300000     // 5 minutes
+    lobbyReady: 300000,    // 5 minutes
+    dayPhase: 300000,      // 5 minutes for day discussion
+    votingPhase: 60000     // 1 minute for voting
   },
   useAIFallback: false,
   showTimer: true,
@@ -105,7 +109,9 @@ export const COMPETITIVE_STRATEGY: TimeoutStrategyConfig = {
     statement: 60000,      // 1 minute
     vote: 30000,           // 30 seconds
     reconnection: 30000,   // 30 seconds
-    lobbyReady: 120000     // 2 minutes
+    lobbyReady: 120000,    // 2 minutes
+    dayPhase: 180000,      // 3 minutes for day discussion
+    votingPhase: 30000     // 30 seconds for voting
   },
   useAIFallback: true,
   showTimer: true,
@@ -128,7 +134,9 @@ export const TOURNAMENT_STRATEGY: TimeoutStrategyConfig = {
     statement: 30000,      // 30 seconds
     vote: 15000,           // 15 seconds
     reconnection: 15000,   // 15 seconds
-    lobbyReady: 60000      // 1 minute
+    lobbyReady: 60000,     // 1 minute
+    dayPhase: 90000,       // 90 seconds for day discussion
+    votingPhase: 15000     // 15 seconds for voting
   },
   useAIFallback: true,
   showTimer: true,

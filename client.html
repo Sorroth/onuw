@@ -478,7 +478,7 @@
       </div>
 
       <div class="card hidden" id="dayCard">
-        <h2>Day Discussion</h2>
+        <h2>Day Discussion <span id="phaseTimer" style="float: right; font-size: 18px; color: #f59e0b;"></span></h2>
         <div class="statements" id="statements">
           <div id="noStatementsMsg" style="color: #888; font-style: italic;">Waiting for statements...</div>
         </div>
@@ -659,6 +659,10 @@
 
       ws.onclose = () => {
         setConnectionStatus('disconnected');
+        // Cleanup timer on disconnect
+        if (typeof stopPhaseTimer === 'function') {
+          stopPhaseTimer();
+        }
       };
 
       ws.onerror = (err) => {
@@ -732,8 +736,8 @@
           break;
 
         case 'phaseChange':
-          log('Phase changed to: ' + msg.phase);
-          handlePhaseChange(msg.phase);
+          log('Phase changed to: ' + msg.phase + (msg.timeRemaining ? ' (' + msg.timeRemaining + 's)' : ''));
+          handlePhaseChange(msg.phase, msg.timeRemaining);
           break;
 
         case 'statementMade':
@@ -938,7 +942,7 @@
       }
 
       if (view.phase) {
-        handlePhaseChange(view.phase);
+        handlePhaseChange(view.phase, view.timeRemaining);
       }
 
       if (view.nightInfo && view.nightInfo.length > 0) {
@@ -1091,7 +1095,12 @@
           break;
 
         case 'TROUBLEMAKER':
-          if (info.swapped && info.swapped.players) {
+          if (info.swapped && info.swapped.from && info.swapped.to) {
+            // Server format: { swapped: { from: { playerId }, to: { playerId } } }
+            const name1 = getPlayerName(info.swapped.from.playerId);
+            const name2 = getPlayerName(info.swapped.to.playerId);
+            text += `Swapped ${name1} and ${name2}'s cards`;
+          } else if (info.swapped && info.swapped.players) {
             const name1 = getPlayerName(info.swapped.players[0]);
             const name2 = getPlayerName(info.swapped.players[1]);
             text += `Swapped ${name1} and ${name2}'s cards`;
@@ -1379,7 +1388,68 @@
       }
     }
 
-    function handlePhaseChange(phase) {
+    // Timer state
+    let phaseTimerInterval = null;
+    let phaseTimeRemaining = 0;
+
+    function updateTimerDisplay() {
+      const timerEl = $('phaseTimer');
+      if (!timerEl) return;
+
+      if (phaseTimeRemaining > 0) {
+        const minutes = Math.floor(phaseTimeRemaining / 60);
+        const seconds = phaseTimeRemaining % 60;
+        timerEl.textContent = minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+
+        // Color based on time remaining
+        if (phaseTimeRemaining <= 10) {
+          timerEl.style.color = '#ef4444'; // Red when low
+        } else if (phaseTimeRemaining <= 30) {
+          timerEl.style.color = '#f59e0b'; // Orange when getting low
+        } else {
+          timerEl.style.color = '#10b981'; // Green when plenty of time
+        }
+      } else {
+        timerEl.textContent = '';
+      }
+    }
+
+    function stopPhaseTimer() {
+      if (phaseTimerInterval) {
+        clearInterval(phaseTimerInterval);
+        phaseTimerInterval = null;
+      }
+      phaseTimeRemaining = 0;
+      updateTimerDisplay();
+    }
+
+    function startPhaseTimer(seconds) {
+      try {
+        // Clear any existing timer first (cleanup)
+        stopPhaseTimer();
+
+        if (!seconds || seconds <= 0) {
+          return;
+        }
+
+        phaseTimeRemaining = seconds;
+        updateTimerDisplay();
+
+        phaseTimerInterval = setInterval(function() {
+          phaseTimeRemaining--;
+          updateTimerDisplay();
+
+          if (phaseTimeRemaining <= 0) {
+            stopPhaseTimer();
+          }
+        }, 1000);
+      } catch (error) {
+        console.error('Timer initialization failed:', error);
+        stopPhaseTimer();
+      }
+    }
+
+    function handlePhaseChange(phase, timeRemaining) {
       $('actionCard').classList.add('hidden');
       // votingCard is not used - voting is handled via actionCard
       $('votingCard').classList.add('hidden');
@@ -1395,6 +1465,8 @@
         $('readyToVoteBtn').style.background = '';
         $('readyStatus').textContent = 'When everyone is done discussing, click Ready to Vote';
         $('readyStatus').style.color = '#888';
+        // Start day timer
+        startPhaseTimer(timeRemaining);
       } else if (phase === 'VOTING') {
         // Keep Day Discussion visible during voting so players can reference statements
         $('dayCard').classList.remove('hidden');
@@ -1402,8 +1474,15 @@
         $('statementInput').classList.add('hidden');
         $('readyToVoteSection').classList.add('hidden');
         // Note: votingCard stays hidden - voting buttons appear in actionCard
+        // Start voting timer
+        startPhaseTimer(timeRemaining);
       } else if (phase === 'NIGHT') {
         $('dayCard').classList.add('hidden');
+        // No timer during night
+        stopPhaseTimer();
+      } else {
+        // Resolution or other phases - stop timer
+        stopPhaseTimer();
       }
     }
 

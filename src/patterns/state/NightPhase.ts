@@ -170,8 +170,8 @@ export class NightPhase extends AbstractGamePhaseState {
       timestamp: Date.now()
     });
 
-    // Execute night actions in order (1 through 9)
-    for (let order = 1; order <= 9; order++) {
+    // Execute night actions in order (1 through 9, plus 10 for Doppel-Insomniac)
+    for (let order = 1; order <= 10; order++) {
       if (this.processedOrders.has(order)) {
         continue; // Already processed (shouldn't happen normally)
       }

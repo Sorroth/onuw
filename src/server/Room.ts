@@ -43,12 +43,22 @@ import {
   WinConditionResult,
   PlayerTeamAssignment
 } from '../network/protocol';
-import { RoleName, GamePhase, NIGHT_WAKE_ORDER } from '../enums';
+import { RoleName, GamePhase, NIGHT_WAKE_ORDER, Team } from '../enums';
 import { Game, IGameAgent } from '../core/Game';
 import { GameConfig } from '../types';
 import { RandomAgent } from '../agents/RandomAgent';
 import { NetworkAgent } from './NetworkAgent';
+import { ITimeoutStrategy, TimeoutStrategy, TimeoutStrategyFactory, CASUAL_STRATEGY } from './TimeoutStrategies';
 import { PlayerView } from '../views/PlayerView';
+import { getDatabase, getWriteQueue } from '../database';
+import {
+  IGameRepository,
+  IReplayRepository,
+  IStatisticsRepository,
+  GameRepository,
+  ReplayRepository,
+  StatisticsRepository
+} from '../database/repositories';
 
 /**
  * @summary Room state enumeration.
@@ -88,6 +98,13 @@ export interface RoomPlayerInfo {
 
   /** When player joined */
   joinedAt: number;
+
+  /**
+   * Database user ID (UUID) for authenticated users.
+   * Used to link game records to user accounts for statistics.
+   * Optional for backwards compatibility with unauthenticated play.
+   */
+  userId?: string;
 }
 
 /**
@@ -195,30 +212,104 @@ export class Room {
   /** Players who have signaled ready to vote */
   private playersReadyToVote: Set<PlayerId> = new Set();
 
+  /** Database game ID (set when game starts if database is available) */
+  private dbGameId: string | null = null;
+
+  /** Database player IDs (maps room player ID to database player ID) */
+  private dbPlayerIds: Map<PlayerId, string> = new Map();
+
+  /** Sequence counter for night actions */
+  private nightActionSequence: number = 0;
+
+  /** Sequence counter for statements */
+  private statementSequence: number = 0;
+
+  /** When the current phase started (timestamp) */
+  private phaseStartedAt: number | null = null;
+
+  /** Duration of the current phase in milliseconds */
+  private phaseDurationMs: number | null = null;
+
+  /** Timeout strategy for phase durations */
+  private readonly timeoutStrategy: ITimeoutStrategy;
+
+  /** Day phase duration in milliseconds (from strategy) */
+  private get dayDurationMs(): number {
+    return this.timeoutStrategy.getTimeout('dayPhase');
+  }
+
+  /** Voting phase duration in milliseconds (from strategy) */
+  private get votingDurationMs(): number {
+    return this.timeoutStrategy.getTimeout('votingPhase');
+  }
+
+  /**
+   * Repository instances.
+   *
+   * @pattern Dependency Inversion - Depend on interfaces, not implementations
+   * @pattern Repository Pattern - Abstract data access behind domain-focused interface
+   */
+  private readonly gameRepository: IGameRepository;
+  private readonly replayRepository: IReplayRepository;
+  private readonly statisticsRepository: IStatisticsRepository;
+
   /**
    * @summary Creates a new game room.
+   *
+   * @description
+   * Initializes a new room with the given configuration. Repositories can be
+   * injected for testing, otherwise default implementations are used.
+   *
+   * @pattern Dependency Injection - Repositories can be injected for testability
+   * @pattern Repository Pattern - Data access abstracted behind interfaces
    *
    * @param {PlayerId} hostId - ID of the host player
    * @param {RoomConfig} config - Room configuration
    * @param {RoomCode} [code] - Optional specific room code
    * @param {DebugOptions} [debugOptions] - Optional debug options for testing
+   * @param {object} [repositories] - Optional repository implementations for testing
+   * @param {IGameRepository} [repositories.gameRepository] - Game repository
+   * @param {IReplayRepository} [repositories.replayRepository] - Replay repository
+   * @param {IStatisticsRepository} [repositories.statisticsRepository] - Statistics repository
    *
    * @example
    * ```typescript
-   * const room = new Room('host-1', {
-   *   roles: [RoleName.WEREWOLF, RoleName.WEREWOLF, RoleName.SEER],
-   *   minPlayers: 3,
-   *   maxPlayers: 6,
-   *   timeoutStrategy: 'competitive'
+   * // Production usage
+   * const room = new Room('host-1', config);
+   *
+   * // Testing with mock repositories
+   * const room = new Room('host-1', config, undefined, undefined, {
+   *   gameRepository: mockGameRepo,
+   *   replayRepository: mockReplayRepo,
+   *   statisticsRepository: mockStatsRepo
    * });
    * ```
    */
-  constructor(hostId: PlayerId, config: RoomConfig, code?: RoomCode, debugOptions?: DebugOptions) {
+  constructor(
+    hostId: PlayerId,
+    config: RoomConfig,
+    code?: RoomCode,
+    debugOptions?: DebugOptions,
+    repositories?: {
+      gameRepository?: IGameRepository;
+      replayRepository?: IReplayRepository;
+      statisticsRepository?: IStatisticsRepository;
+    }
+  ) {
     this.hostId = hostId;
     this.config = { ...config };
     this.code = code ?? generateRoomCode();
     this.createdAt = Date.now();
     this.debugOptions = debugOptions || null;
+
+    // Initialize timeout strategy (default: casual)
+    // TODO: Allow strategy selection via config
+    this.timeoutStrategy = TimeoutStrategyFactory.create('casual');
+
+    // Initialize repositories (with dependency injection support for testing)
+    this.gameRepository = repositories?.gameRepository ?? new GameRepository();
+    this.replayRepository = repositories?.replayRepository ?? new ReplayRepository();
+    this.statisticsRepository = repositories?.statisticsRepository ?? new StatisticsRepository();
   }
 
   /**
@@ -340,6 +431,7 @@ export class Room {
    * @param {string} name - Player name
    * @param {IClientConnection} connection - Player connection
    * @param {boolean} [isAI=false] - Whether this is an AI player
+   * @param {string} [userId] - Database user ID for authenticated players
    *
    * @throws {Error} If room is full or not accepting players
    */
@@ -347,7 +439,8 @@ export class Room {
     playerId: PlayerId,
     name: string,
     connection: IClientConnection,
-    isAI: boolean = false
+    isAI: boolean = false,
+    userId?: string
   ): void {
     if (this.status !== RoomStatus.WAITING) {
       throw new Error('Room is not accepting new players');
@@ -367,7 +460,8 @@ export class Room {
       connection,
       isReady: isAI, // AI players are always ready
       isAI,
-      joinedAt: Date.now()
+      joinedAt: Date.now(),
+      userId
     };
 
     this.players.set(playerId, playerInfo);
@@ -661,6 +755,9 @@ export class Room {
     this.status = RoomStatus.PLAYING;
     this.gameStartedAt = Date.now();
 
+    // Save game to database (queued with retry)
+    this.enqueueGameSave(playerList);
+
     this.emitEvent('gameStarted', {
       playerIds: playerList.map(p => p.id)
     });
@@ -740,7 +837,7 @@ export class Room {
     console.log(`Registering ${agents.size} agents and starting game...`);
     this.game.registerAgents(agents);
 
-    // Subscribe to game events to broadcast to all players
+    // Subscribe to game events to broadcast to all players and save to database
     this.game.addObserver({
       onEvent: (event: { type: string; data?: Record<string, unknown> }) => {
         if (event.type === 'STATEMENT_MADE' && event.data) {
@@ -751,6 +848,9 @@ export class Room {
             const roomPlayerId = this.gameToRoomPlayerMap.get(gamePlayerId) || gamePlayerId;
             const player = this.players.get(roomPlayerId);
             const playerName = player?.name || roomPlayerId;
+
+            // Save statement to database (queued with retry)
+            this.enqueueStatementSave(gamePlayerId, statement);
 
             // Broadcast statement to all players
             this.broadcast({
@@ -764,12 +864,49 @@ export class Room {
         } else if (event.type === 'PHASE_CHANGED' && event.data) {
           // Broadcast phase change to all players
           const toPhase = event.data.to as GamePhase;
+          console.log(`DEBUG PHASE_CHANGED: toPhase="${toPhase}", GamePhase.DAY="${GamePhase.DAY}", match=${toPhase === GamePhase.DAY}, dayDurationMs=${this.dayDurationMs}`);
+
+          // Set phase timing based on phase type
+          this.phaseStartedAt = Date.now();
+          if (toPhase === GamePhase.DAY) {
+            this.phaseDurationMs = this.dayDurationMs;
+          } else if (toPhase === GamePhase.VOTING) {
+            this.phaseDurationMs = this.votingDurationMs;
+          } else {
+            // Night and Resolution phases have no time limit
+            this.phaseDurationMs = null;
+          }
+
+          // Update game status in database (queued with retry)
+          if (this.dbGameId) {
+            const statusMap: Record<string, string> = {
+              [GamePhase.NIGHT]: 'night',
+              [GamePhase.DAY]: 'day',
+              [GamePhase.VOTING]: 'voting'
+            };
+            const dbStatus = statusMap[toPhase];
+            if (dbStatus) {
+              this.enqueueStatusUpdate(dbStatus);
+            }
+          }
+
+          const timeRemaining = this.getTimeRemaining();
+          console.log(`Phase change to ${toPhase}: timeRemaining=${timeRemaining}, phaseStartedAt=${this.phaseStartedAt}, phaseDurationMs=${this.phaseDurationMs}`);
+
           this.broadcast({
             type: 'phaseChange',
             phase: toPhase,
-            timeRemaining: null,
+            timeRemaining,
             timestamp: Date.now()
           });
+        } else if (event.type === 'NIGHT_ACTION_EXECUTED' && event.data) {
+          // Save night action to database (non-blocking)
+          const actorId = event.data.actorId as string;
+          const roleName = event.data.roleName as string;
+          const actionType = event.data.actionType as string;
+          const details = event.data.details as Record<string, unknown>;
+
+          this.enqueueNightActionSave(actorId, roleName as RoleName, actionType, details);
         }
       }
     });
@@ -825,6 +962,14 @@ export class Room {
         finalRoles: finalRolesRecord,
         votes: votesRecord
       };
+
+      // Save votes to database (queued with retry)
+      for (const [voterId, targetId] of result.votes) {
+        this.enqueueVoteSave(voterId, targetId);
+      }
+
+      // Save game results to database (queued with retry)
+      this.enqueueGameResultsSave(serializableResult, playerList);
 
       // Get final center cards
       const centerCards = this.game.getCenterCards();
@@ -1296,6 +1441,25 @@ export class Room {
   }
 
   /**
+   * @summary Gets the time remaining in the current phase.
+   *
+   * @description
+   * Computes remaining time based on phase start time and duration.
+   * Returns null if phase has no time limit or timing info is not available.
+   *
+   * @returns {number | null} Remaining time in seconds, or null
+   */
+  getTimeRemaining(): number | null {
+    if (this.phaseStartedAt === null || this.phaseDurationMs === null) {
+      return null;
+    }
+
+    const elapsed = Date.now() - this.phaseStartedAt;
+    const remaining = Math.max(0, this.phaseDurationMs - elapsed);
+    return Math.ceil(remaining / 1000); // Return seconds
+  }
+
+  /**
    * @summary Broadcasts room state to all players.
    *
    * @private
@@ -1353,5 +1517,689 @@ export class Room {
       status: this.getProtocolStatus(),
       createdAt: this.createdAt
     };
+  }
+
+  // ==========================================================================
+  // DATABASE INTEGRATION
+  // ==========================================================================
+  // @pattern Repository Pattern - All database access goes through repositories
+  // @pattern Facade Pattern - Room acts as facade, hiding database complexity
+  // @pattern 6NF Compliance - Data is stored in fully normalized tables
+  // ==========================================================================
+
+  /**
+   * @summary Saves game to database when it starts.
+   *
+   * @description
+   * Creates the game record, player records, and center cards in the database.
+   * This operation is non-blocking - the game continues even if the database
+   * save fails, ensuring graceful degradation.
+   *
+   * @pattern Repository Pattern - Uses IGameRepository for data access
+   * @pattern Graceful Degradation - Game continues if database fails
+   *
+   * @param {RoomPlayerInfo[]} playerList - List of players in the game
+   * @returns {Promise<void>} Resolves when save completes or fails gracefully
+   *
+   * @private
+   */
+  private async saveGameToDatabase(playerList: RoomPlayerInfo[]): Promise<void> {
+    const db = getDatabase();
+    if (!db.isConnected()) {
+      console.log('Database not connected, skipping game save');
+      return;
+    }
+
+    try {
+      // Get the host's database user ID
+      // The host is identified by this.hostId (room player ID)
+      const hostPlayer = playerList.find((p) => p.id === this.hostId);
+      const hostUserId = hostPlayer?.userId || this.hostId;
+
+      // Create game in database
+      this.dbGameId = await this.gameRepository.createGame({
+        hostUserId: hostUserId,
+        roomCode: this.code,
+        playerCount: playerList.length,
+        selectedRoles: [...this.config.roles], // Spread to create mutable array
+        dayDurationSeconds: Math.floor(this.dayDurationMs / 1000),
+        voteDurationSeconds: Math.floor(this.votingDurationMs / 1000),
+        isPrivate: true,
+        allowSpectators: false
+      });
+
+      console.log(`Game saved to database with ID: ${this.dbGameId}`);
+
+      // Add players to database
+      for (let i = 0; i < playerList.length; i++) {
+        const roomPlayer = playerList[i];
+        const gamePlayerId = this.roomToGamePlayerMap.get(roomPlayer.id);
+
+        if (gamePlayerId && this.game) {
+          const startingRole = this.game.getPlayerStartingRole(gamePlayerId);
+
+          const dbPlayerId = await this.gameRepository.addPlayer({
+            gameId: this.dbGameId,
+            userId: roomPlayer.userId,  // undefined for AI players
+            isAI: roomPlayer.isAI,
+            seatPosition: i,
+            startingRole: startingRole
+          });
+
+          this.dbPlayerIds.set(roomPlayer.id, dbPlayerId);
+        }
+      }
+
+      // Set center cards
+      if (this.game) {
+        const centerCards = this.game.getCenterCards();
+        await this.gameRepository.setCenterCards(this.dbGameId, centerCards);
+      }
+
+      // Update game status
+      await this.gameRepository.updateStatus(this.dbGameId, 'night');
+
+      console.log(`Game ${this.dbGameId}: ${playerList.length} players saved`);
+    } catch (error) {
+      console.error('Error saving game to database:', error);
+      this.dbGameId = null;
+    }
+  }
+
+  /**
+   * @summary Saves a night action to the database.
+   *
+   * @description
+   * Persists a night action using 6NF-compliant decomposed tables.
+   * Action details are extracted into separate tables: targets, views,
+   * swaps, copies, and teammates.
+   *
+   * @pattern Repository Pattern - Uses IReplayRepository for data access
+   * @pattern 6NF Compliance - Data decomposed into normalized tables
+   * @pattern Graceful Degradation - Continues silently on failure
+   *
+   * @param {string} gamePlayerId - Game player ID who performed action
+   * @param {RoleName} role - Role that performed the action
+   * @param {string} actionType - Type of action (view_player, swap_players, etc.)
+   * @param {Record<string, unknown>} details - Action-specific details
+   * @returns {Promise<void>} Resolves when save completes
+   *
+   * @private
+   */
+  private async saveNightActionToDatabase(
+    gamePlayerId: string,
+    role: RoleName,
+    actionType: string,
+    details: Record<string, unknown>
+  ): Promise<void> {
+    if (!this.dbGameId) return;
+
+    const roomPlayerId = this.gameToRoomPlayerMap.get(gamePlayerId);
+    if (!roomPlayerId) return;
+
+    const dbPlayerId = this.dbPlayerIds.get(roomPlayerId);
+    if (!dbPlayerId) return;
+
+    try {
+      await this.replayRepository.saveNightAction({
+        gameId: this.dbGameId,
+        actorPlayerId: dbPlayerId,
+        performedAsRole: role,
+        actionType,
+        sequenceOrder: this.nightActionSequence++,
+        isDoppelgangerAction: false,
+        targets: this.extractTargets(details),
+        views: this.extractViews(details),
+        swap: this.extractSwap(details),
+        copy: this.extractCopy(details),
+        teammates: this.extractTeammates(details)
+      });
+    } catch (error) {
+      console.error('Error saving night action to database:', error);
+    }
+  }
+
+  /**
+   * @summary Saves a statement to the database.
+   *
+   * @description
+   * Persists a day phase statement for full game replay capability.
+   * Statements are stored in sequence order for accurate reconstruction.
+   *
+   * @pattern Repository Pattern - Uses IReplayRepository for data access
+   * @pattern Graceful Degradation - Continues silently on failure
+   *
+   * @param {string} gamePlayerId - Game player ID who made statement
+   * @param {string} text - Statement text
+   * @returns {Promise<void>} Resolves when save completes
+   *
+   * @private
+   */
+  private async saveStatementToDatabase(
+    gamePlayerId: string,
+    text: string
+  ): Promise<void> {
+    if (!this.dbGameId) return;
+
+    const roomPlayerId = this.gameToRoomPlayerMap.get(gamePlayerId);
+    if (!roomPlayerId) return;
+
+    const dbPlayerId = this.dbPlayerIds.get(roomPlayerId);
+    if (!dbPlayerId) return;
+
+    try {
+      await this.replayRepository.saveStatement({
+        gameId: this.dbGameId,
+        speakerPlayerId: dbPlayerId,
+        text,
+        type: 'claim',
+        sequenceOrder: this.statementSequence++
+      });
+    } catch (error) {
+      console.error('Error saving statement to database:', error);
+    }
+  }
+
+  /**
+   * @summary Saves a vote to the database.
+   *
+   * @description
+   * Persists a player's vote for full game replay and statistics.
+   * Supports both votes for players and abstentions (null target).
+   *
+   * @pattern Repository Pattern - Uses IReplayRepository for data access
+   * @pattern Graceful Degradation - Continues silently on failure
+   *
+   * @param {string} voterGamePlayerId - Game player ID of voter
+   * @param {string | null} targetGamePlayerId - Game player ID of target (null for no vote)
+   * @returns {Promise<void>} Resolves when save completes
+   *
+   * @private
+   */
+  private async saveVoteToDatabase(
+    voterGamePlayerId: string,
+    targetGamePlayerId: string | null
+  ): Promise<void> {
+    if (!this.dbGameId) return;
+
+    const voterRoomId = this.gameToRoomPlayerMap.get(voterGamePlayerId);
+    if (!voterRoomId) return;
+
+    const voterDbId = this.dbPlayerIds.get(voterRoomId);
+    if (!voterDbId) return;
+
+    let targetDbId: string | null = null;
+    if (targetGamePlayerId) {
+      const targetRoomId = this.gameToRoomPlayerMap.get(targetGamePlayerId);
+      if (targetRoomId) {
+        targetDbId = this.dbPlayerIds.get(targetRoomId) || null;
+      }
+    }
+
+    try {
+      await this.replayRepository.saveVote({
+        gameId: this.dbGameId,
+        voterPlayerId: voterDbId,
+        targetPlayerId: targetDbId,
+        isFinal: true
+      });
+    } catch (error) {
+      console.error('Error saving vote to database:', error);
+    }
+  }
+
+  /**
+   * @summary Saves game results to the database.
+   *
+   * @description
+   * Persists final game state including winners, eliminations, and
+   * team assignments. Also triggers statistics update via database
+   * trigger for automatic leaderboard maintenance.
+   *
+   * @pattern Repository Pattern - Uses IGameRepository and IStatisticsRepository
+   * @pattern Graceful Degradation - Continues silently on failure
+   * @pattern Event Sourcing - Results reconstructable from saved events
+   *
+   * @param {SerializableGameResult} result - Game result with winners and votes
+   * @param {RoomPlayerInfo[]} playerList - List of players in the game
+   * @returns {Promise<void>} Resolves when save completes
+   *
+   * @private
+   */
+  private async saveGameResultsToDatabase(
+    result: SerializableGameResult,
+    playerList: RoomPlayerInfo[]
+  ): Promise<void> {
+    if (!this.dbGameId || !this.game) return;
+
+    try {
+      // Update game status
+      await this.gameRepository.updateStatus(this.dbGameId, 'completed');
+
+      // Update final roles for all players
+      for (const [roomId, role] of Object.entries(result.finalRoles)) {
+        const dbPlayerId = this.dbPlayerIds.get(roomId);
+        if (dbPlayerId) {
+          await this.gameRepository.updateFinalRole(dbPlayerId, role);
+        }
+      }
+
+      // Build player results for statistics
+      const playerResults: Array<{
+        playerId: string;
+        userId?: string;
+        isAI: boolean;
+        finalTeam: string;
+        isWinner: boolean;
+        isEliminated: boolean;
+        votesReceived: number;
+        voteCastFor: string | null;
+      }> = [];
+
+      const finalTeams = this.game.getFinalTeamAssignments();
+
+      for (const roomPlayer of playerList) {
+        const dbPlayerId = this.dbPlayerIds.get(roomPlayer.id);
+        if (!dbPlayerId) continue;
+
+        const gamePlayerId = this.roomToGamePlayerMap.get(roomPlayer.id);
+        if (!gamePlayerId) continue;
+
+        const teamAssignment = finalTeams.find(t => {
+          const tRoomId = this.gameToRoomPlayerMap.get(t.playerId);
+          return tRoomId === roomPlayer.id;
+        });
+
+        const isEliminated = result.eliminatedPlayers.includes(roomPlayer.id);
+        const isWinner = result.winningPlayers.includes(roomPlayer.id);
+
+        // Count votes received
+        const votesReceived = Object.values(result.votes).filter(
+          target => target === roomPlayer.id
+        ).length;
+
+        // Get who this player voted for
+        const voteCastFor = result.votes[roomPlayer.id] || null;
+        const voteCastForDbId = voteCastFor ? this.dbPlayerIds.get(voteCastFor) || null : null;
+
+        playerResults.push({
+          playerId: dbPlayerId,
+          userId: roomPlayer.userId,  // undefined for AI players
+          isAI: roomPlayer.isAI,
+          finalTeam: teamAssignment?.team.toString() || 'village',
+          isWinner,
+          isEliminated,
+          votesReceived,
+          voteCastFor: voteCastForDbId
+        });
+      }
+
+      // Get win conditions
+      const winConditions = this.game.getWinConditionResults().map(wc => ({
+        team: wc.team.toString(),
+        won: wc.won,
+        reason: wc.reason
+      }));
+
+      // Save game results (this triggers statistics update via database trigger)
+      await this.statisticsRepository.saveGameResult({
+        gameId: this.dbGameId,
+        winningTeam: result.winningTeams[0] || null,
+        playerResults,
+        winConditions
+      });
+
+      console.log(`Game ${this.dbGameId}: Results saved to database`);
+    } catch (error) {
+      console.error('Error saving game results to database:', error);
+    }
+  }
+
+  // ==========================================================================
+  // WRITE QUEUE ENQUEUE METHODS
+  // ==========================================================================
+  // @pattern Command Pattern - Operations encapsulated for queue processing
+  // @pattern Retry Pattern - Automatic retry with exponential backoff
+  // ==========================================================================
+
+  /**
+   * @summary Enqueues game save operation.
+   *
+   * @description
+   * Wraps saveGameToDatabase in a queued command with retry support.
+   *
+   * @param {RoomPlayerInfo[]} playerList - List of players
+   * @private
+   */
+  private enqueueGameSave(playerList: RoomPlayerInfo[]): void {
+    const queue = getWriteQueue();
+    queue.enqueueWrite(
+      'saveGame',
+      { roomCode: this.code, playerCount: playerList.length },
+      async () => {
+        await this.saveGameToDatabase(playerList);
+      }
+    );
+  }
+
+  /**
+   * @summary Enqueues statement save operation.
+   *
+   * @param {string} gamePlayerId - Game player ID
+   * @param {string} text - Statement text
+   * @private
+   */
+  private enqueueStatementSave(gamePlayerId: string, text: string): void {
+    if (!this.dbGameId) return;
+
+    const queue = getWriteQueue();
+    queue.enqueueWrite(
+      'saveStatement',
+      { gameId: this.dbGameId, gamePlayerId, textLength: text.length },
+      async () => {
+        await this.saveStatementToDatabase(gamePlayerId, text);
+      }
+    );
+  }
+
+  /**
+   * @summary Enqueues game status update operation.
+   *
+   * @param {string} status - New game status
+   * @private
+   */
+  private enqueueStatusUpdate(status: string): void {
+    if (!this.dbGameId) return;
+
+    const queue = getWriteQueue();
+    const gameId = this.dbGameId; // Capture for closure
+    queue.enqueueWrite(
+      'updateStatus',
+      { gameId, status },
+      async () => {
+        await this.gameRepository.updateStatus(gameId, status);
+      }
+    );
+  }
+
+  /**
+   * @summary Enqueues night action save operation.
+   *
+   * @param {string} actorId - Actor game player ID
+   * @param {RoleName} role - Role performing action
+   * @param {string} actionType - Type of action
+   * @param {Record<string, unknown>} details - Action details
+   * @private
+   */
+  private enqueueNightActionSave(
+    actorId: string,
+    role: RoleName,
+    actionType: string,
+    details: Record<string, unknown>
+  ): void {
+    if (!this.dbGameId) return;
+
+    const queue = getWriteQueue();
+    queue.enqueueWrite(
+      'saveNightAction',
+      { gameId: this.dbGameId, role, actionType },
+      async () => {
+        await this.saveNightActionToDatabase(actorId, role, actionType, details);
+      }
+    );
+  }
+
+  /**
+   * @summary Enqueues vote save operation.
+   *
+   * @param {string} voterId - Voter game player ID
+   * @param {string | null} targetId - Target game player ID
+   * @private
+   */
+  private enqueueVoteSave(voterId: string, targetId: string | null): void {
+    if (!this.dbGameId) return;
+
+    const queue = getWriteQueue();
+    queue.enqueueWrite(
+      'saveVote',
+      { gameId: this.dbGameId, voterId },
+      async () => {
+        await this.saveVoteToDatabase(voterId, targetId);
+      }
+    );
+  }
+
+  /**
+   * @summary Enqueues game results save operation.
+   *
+   * @param {SerializableGameResult} result - Game result
+   * @param {RoomPlayerInfo[]} playerList - List of players
+   * @private
+   */
+  private enqueueGameResultsSave(
+    result: SerializableGameResult,
+    playerList: RoomPlayerInfo[]
+  ): void {
+    if (!this.dbGameId) return;
+
+    const queue = getWriteQueue();
+    queue.enqueueWrite(
+      'saveGameResults',
+      { gameId: this.dbGameId, winningTeams: result.winningTeams },
+      async () => {
+        await this.saveGameResultsToDatabase(result, playerList);
+      }
+    );
+  }
+
+  // ==========================================================================
+  // HELPER METHODS FOR 6NF DATA EXTRACTION
+  // ==========================================================================
+
+  /**
+   * @summary Extracts targets from night action details.
+   *
+   * @description
+   * Parses night action details to extract target information for
+   * storage in the 6NF night_action_targets table.
+   *
+   * @pattern 6NF Compliance - Extracts data for normalized storage
+   * @pattern Information Hiding - Implementation details hidden from callers
+   *
+   * @param {Record<string, unknown>} details - Action-specific details
+   * @returns {Array} Normalized target records
+   *
+   * @private
+   */
+  private extractTargets(
+    details: Record<string, unknown>
+  ): Array<{ targetType: 'player' | 'center' | 'self'; targetPlayerId?: string; targetCenterPosition?: number; targetOrder: number }> {
+    const targets: Array<{ targetType: 'player' | 'center' | 'self'; targetPlayerId?: string; targetCenterPosition?: number; targetOrder: number }> = [];
+
+    const viewed = details.viewed as Array<{ playerId?: string; centerIndex?: number }> | undefined;
+    if (viewed) {
+      viewed.forEach((v, i) => {
+        if (v.playerId) {
+          const roomId = this.gameToRoomPlayerMap.get(v.playerId);
+          const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+          if (dbId) {
+            targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: i });
+          }
+        } else if (v.centerIndex !== undefined) {
+          targets.push({ targetType: 'center', targetCenterPosition: v.centerIndex, targetOrder: i });
+        }
+      });
+    }
+
+    const swapped = details.swapped as { from: { playerId?: string; centerIndex?: number }; to: { playerId?: string; centerIndex?: number } } | undefined;
+    if (swapped) {
+      if (swapped.from.playerId) {
+        const roomId = this.gameToRoomPlayerMap.get(swapped.from.playerId);
+        const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+        if (dbId) {
+          targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: 0 });
+        }
+      }
+      if (swapped.to.playerId) {
+        const roomId = this.gameToRoomPlayerMap.get(swapped.to.playerId);
+        const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+        if (dbId) {
+          targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: 1 });
+        }
+      }
+    }
+
+    return targets;
+  }
+
+  /**
+   * @summary Extracts views from night action details.
+   *
+   * @description
+   * Parses night action details to extract view information (roles seen)
+   * for storage in the 6NF night_action_views table.
+   *
+   * @pattern 6NF Compliance - Extracts data for normalized storage
+   * @pattern Information Hiding - Implementation details hidden from callers
+   *
+   * @param {Record<string, unknown>} details - Action-specific details
+   * @returns {Array} Normalized view records
+   *
+   * @private
+   */
+  private extractViews(
+    details: Record<string, unknown>
+  ): Array<{ viewSourceType: 'player' | 'center' | 'self'; sourcePlayerId?: string; sourceCenterPosition?: number; viewedRole: string; viewOrder: number }> {
+    const views: Array<{ viewSourceType: 'player' | 'center' | 'self'; sourcePlayerId?: string; sourceCenterPosition?: number; viewedRole: string; viewOrder: number }> = [];
+
+    const viewed = details.viewed as Array<{ playerId?: string; centerIndex?: number; role: string }> | undefined;
+    if (viewed) {
+      viewed.forEach((v, i) => {
+        if (v.playerId) {
+          const roomId = this.gameToRoomPlayerMap.get(v.playerId);
+          const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+          if (dbId) {
+            views.push({ viewSourceType: 'player', sourcePlayerId: dbId, viewedRole: v.role, viewOrder: i });
+          }
+        } else if (v.centerIndex !== undefined) {
+          views.push({ viewSourceType: 'center', sourceCenterPosition: v.centerIndex, viewedRole: v.role, viewOrder: i });
+        }
+      });
+    }
+
+    return views;
+  }
+
+  /**
+   * @summary Extracts swap from night action details.
+   *
+   * @description
+   * Parses night action details to extract swap operation data
+   * for storage in the 6NF night_action_swaps table.
+   *
+   * @pattern 6NF Compliance - Extracts data for normalized storage
+   * @pattern Information Hiding - Implementation details hidden from callers
+   *
+   * @param {Record<string, unknown>} details - Action-specific details
+   * @returns {object | undefined} Normalized swap record or undefined if no swap
+   *
+   * @private
+   */
+  private extractSwap(
+    details: Record<string, unknown>
+  ): { fromType: 'player' | 'center'; fromPlayerId?: string; fromCenterPosition?: number; toType: 'player' | 'center'; toPlayerId?: string; toCenterPosition?: number } | undefined {
+    const swapped = details.swapped as { from: { playerId?: string; centerIndex?: number }; to: { playerId?: string; centerIndex?: number } } | undefined;
+    if (!swapped) return undefined;
+
+    const swap: { fromType: 'player' | 'center'; fromPlayerId?: string; fromCenterPosition?: number; toType: 'player' | 'center'; toPlayerId?: string; toCenterPosition?: number } = {
+      fromType: swapped.from.playerId ? 'player' : 'center',
+      toType: swapped.to.playerId ? 'player' : 'center'
+    };
+
+    if (swapped.from.playerId) {
+      const roomId = this.gameToRoomPlayerMap.get(swapped.from.playerId);
+      swap.fromPlayerId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+    } else {
+      swap.fromCenterPosition = swapped.from.centerIndex;
+    }
+
+    if (swapped.to.playerId) {
+      const roomId = this.gameToRoomPlayerMap.get(swapped.to.playerId);
+      swap.toPlayerId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+    } else {
+      swap.toCenterPosition = swapped.to.centerIndex;
+    }
+
+    return swap;
+  }
+
+  /**
+   * @summary Extracts copy from night action details.
+   *
+   * @description
+   * Parses night action details to extract Doppelganger copy data
+   * for storage in the 6NF night_action_copies table.
+   *
+   * @pattern 6NF Compliance - Extracts data for normalized storage
+   * @pattern Information Hiding - Implementation details hidden from callers
+   *
+   * @param {Record<string, unknown>} details - Action-specific details
+   * @returns {object | undefined} Normalized copy record or undefined if no copy
+   *
+   * @private
+   */
+  private extractCopy(
+    details: Record<string, unknown>
+  ): { copiedFromPlayerId: string; copiedRole: string } | undefined {
+    const copied = details.copied as { fromPlayerId: string; role: string } | undefined;
+    if (!copied) return undefined;
+
+    const roomId = this.gameToRoomPlayerMap.get(copied.fromPlayerId);
+    const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+    if (!dbId) return undefined;
+
+    return {
+      copiedFromPlayerId: dbId,
+      copiedRole: copied.role
+    };
+  }
+
+  /**
+   * @summary Extracts teammates from night action details.
+   *
+   * @description
+   * Parses night action details to extract teammate player IDs
+   * (werewolves, masons) for storage in the 6NF night_action_teammates table.
+   *
+   * @pattern 6NF Compliance - Extracts data for normalized storage
+   * @pattern Information Hiding - Implementation details hidden from callers
+   *
+   * @param {Record<string, unknown>} details - Action-specific details
+   * @returns {string[]} Array of database player IDs for teammates
+   *
+   * @private
+   */
+  private extractTeammates(details: Record<string, unknown>): string[] {
+    const teammates: string[] = [];
+
+    const werewolves = details.werewolves as string[] | undefined;
+    if (werewolves) {
+      for (const id of werewolves) {
+        const roomId = this.gameToRoomPlayerMap.get(id);
+        const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+        if (dbId) teammates.push(dbId);
+      }
+    }
+
+    const masons = details.masons as string[] | undefined;
+    if (masons) {
+      for (const id of masons) {
+        const roomId = this.gameToRoomPlayerMap.get(id);
+        const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
+        if (dbId) teammates.push(dbId);
+      }
+    }
+
+    return teammates;
   }
 }

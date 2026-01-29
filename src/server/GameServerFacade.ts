@@ -37,7 +37,15 @@ import {
   RoomCode,
   createMessage,
   createErrorMessage,
-  ErrorCodes
+  ErrorCodes,
+  LoginResponseMessage,
+  RegisterResponseMessage,
+  StatsResponseMessage,
+  LeaderboardResponseMessage,
+  ReplayResponseMessage,
+  PlayerStatsData,
+  LeaderboardEntry,
+  GameReplayData
 } from '../network/protocol';
 import { Room, RoomStatus } from './Room';
 import { RoomManager, RoomManagerConfig } from './RoomManager';
@@ -52,6 +60,13 @@ import {
 } from './TimeoutStrategies';
 import { PlayerViewFactory } from '../players/PlayerView';
 import { Game } from '../core/Game';
+import { AuthService, getAuthService } from '../services';
+import {
+  IStatisticsRepository,
+  IReplayRepository,
+  StatisticsRepository,
+  ReplayRepository
+} from '../database/repositories';
 
 /**
  * @summary Game server configuration.
@@ -85,6 +100,8 @@ interface PlayerSession {
   connection: IClientConnection;
   roomCode: RoomCode | null;
   authenticatedAt: number;
+  /** Database user ID (UUID) for authenticated users */
+  userId?: string;
 }
 
 /**
@@ -128,6 +145,18 @@ export class GameServerFacade {
   /** Connection to session mapping */
   private readonly connectionToSession: Map<string, string> = new Map();
 
+  /** Authenticated database user IDs by connection ID */
+  private readonly authenticatedUsers: Map<string, string> = new Map();
+
+  /** Authentication service for login/register */
+  private readonly authService: AuthService;
+
+  /** Statistics repository for player stats */
+  private readonly statsRepo: IStatisticsRepository;
+
+  /** Replay repository for game replay data */
+  private readonly replayRepo: IReplayRepository;
+
   /** Whether server is running */
   private _isRunning: boolean = false;
 
@@ -165,6 +194,11 @@ export class GameServerFacade {
     this.reconnectionManager = new ReconnectionManager({
       gracePeriodMs: config.reconnectionGracePeriodMs ?? 30000
     });
+
+    // Initialize database services (Dependency Inversion - depend on abstractions)
+    this.authService = getAuthService();
+    this.statsRepo = new StatisticsRepository();
+    this.replayRepo = new ReplayRepository();
 
     this.setupEventHandlers();
   }
@@ -248,7 +282,9 @@ export class GameServerFacade {
     try {
       switch (message.type) {
         case 'authenticate':
-          this.handleAuthenticate(connection, message);
+          this.handleAuthenticate(connection, message).catch((err) => {
+            console.error('Error during WebSocket authentication:', err);
+          });
           break;
 
         case 'disconnect':
@@ -303,6 +339,26 @@ export class GameServerFacade {
           this.handleReadyToVote(connection);
           break;
 
+        case 'login':
+          this.handleLogin(connection, message);
+          break;
+
+        case 'register':
+          this.handleRegister(connection, message);
+          break;
+
+        case 'getStats':
+          this.handleGetStats(connection, message);
+          break;
+
+        case 'getLeaderboard':
+          this.handleGetLeaderboard(connection, message);
+          break;
+
+        case 'getReplay':
+          this.handleGetReplay(connection, message);
+          break;
+
         default:
           this.sendError(connection, ErrorCodes.INVALID_MESSAGE, `Unknown message type`);
       }
@@ -324,16 +380,37 @@ export class GameServerFacade {
    *
    * @private
    */
-  private handleAuthenticate(
+  private async handleAuthenticate(
     connection: IClientConnection,
     message: Extract<ClientMessage, { type: 'authenticate' }>
-  ): void {
-    const { playerId, playerName } = message;
+  ): Promise<void> {
+    const { playerId, playerName, token } = message;
 
     // Check if player is reconnecting
     if (this.reconnectionManager.canReconnect(playerId)) {
       this.handleReconnection(connection, playerId, playerName);
       return;
+    }
+
+    // If a JWT token is provided, validate it and link to database user
+    let userId: string | undefined;
+    if (token) {
+      console.log(`WebSocket auth: Token received for ${playerName}`);
+      try {
+        const user = await this.authService.validateToken(token);
+        if (user) {
+          userId = user.userId;
+          this.authenticatedUsers.set(connection.id, userId);
+          console.log(`WebSocket auth: Linked ${playerName} to database user ${userId}`);
+        } else {
+          console.log(`WebSocket auth: Token valid but no user returned`);
+        }
+      } catch (error) {
+        // Token validation failed - continue without database user link
+        console.log('Token validation failed during WebSocket auth:', error);
+      }
+    } else {
+      console.log(`WebSocket auth: No token provided for ${playerName}`);
     }
 
     // Create new session
@@ -342,7 +419,8 @@ export class GameServerFacade {
       playerName,
       connection,
       roomCode: null,
-      authenticatedAt: Date.now()
+      authenticatedAt: Date.now(),
+      userId
     };
 
     this.sessions.set(playerId, session);
@@ -458,8 +536,11 @@ export class GameServerFacade {
       // Pass debug options if provided
       const room = this.roomManager.createRoom(session.playerId, message.config, message.debug);
 
+      // Get authenticated database user ID if available
+      const userId = this.authenticatedUsers.get(connection.id);
+
       // Add host to room
-      room.addPlayer(session.playerId, session.playerName, connection);
+      room.addPlayer(session.playerId, session.playerName, connection, false, userId);
       session.roomCode = room.getCode();
 
       const createdMessage: ServerMessage = {
@@ -515,7 +596,10 @@ export class GameServerFacade {
     }
 
     try {
-      room.addPlayer(session.playerId, session.playerName, connection);
+      // Get authenticated database user ID if available
+      const userId = this.authenticatedUsers.get(connection.id);
+
+      room.addPlayer(session.playerId, session.playerName, connection, false, userId);
       session.roomCode = room.getCode();
 
       const joinedMessage: ServerMessage = {
@@ -915,6 +999,352 @@ export class GameServerFacade {
   private sendError(connection: IClientConnection, code: string, message: string): void {
     if (connection.isConnected()) {
       connection.send(createErrorMessage(code, message));
+    }
+  }
+
+  // ============================================================================
+  // DATABASE AUTHENTICATION HANDLERS
+  // ============================================================================
+
+  /**
+   * @summary Handles login request via WebSocket.
+   *
+   * @description
+   * Authenticates user with email/password and returns JWT token.
+   * Associates the database user ID with the WebSocket connection.
+   *
+   * @pattern Repository Pattern - Uses AuthService for authentication
+   * @pattern Graceful Degradation - Returns error message on failure
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Login message
+   *
+   * @private
+   */
+  private async handleLogin(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'login' }>
+  ): Promise<void> {
+    try {
+      const result = await this.authService.login({
+        email: message.email,
+        password: message.password
+      });
+
+      // Associate database user ID with this connection
+      this.authenticatedUsers.set(connection.id, result.user.userId);
+
+      const response: LoginResponseMessage = {
+        type: 'loginResponse',
+        success: true,
+        token: result.token,
+        userId: result.user.userId,
+        displayName: result.user.displayName ?? result.user.email,
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    } catch (error) {
+      const response: LoginResponseMessage = {
+        type: 'loginResponse',
+        success: false,
+        error: error instanceof Error ? error.message : 'Login failed',
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    }
+  }
+
+  /**
+   * @summary Handles registration request via WebSocket.
+   *
+   * @description
+   * Creates new user account and returns JWT token for immediate login.
+   * Associates the database user ID with the WebSocket connection.
+   *
+   * @pattern Repository Pattern - Uses AuthService for registration
+   * @pattern Graceful Degradation - Returns error message on failure
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Register message
+   *
+   * @private
+   */
+  private async handleRegister(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'register' }>
+  ): Promise<void> {
+    try {
+      const result = await this.authService.register({
+        email: message.email,
+        password: message.password,
+        displayName: message.displayName
+      });
+
+      // Associate database user ID with this connection
+      this.authenticatedUsers.set(connection.id, result.user.userId);
+
+      const response: RegisterResponseMessage = {
+        type: 'registerResponse',
+        success: true,
+        token: result.token,
+        userId: result.user.userId,
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    } catch (error) {
+      const response: RegisterResponseMessage = {
+        type: 'registerResponse',
+        success: false,
+        error: error instanceof Error ? error.message : 'Registration failed',
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    }
+  }
+
+  // ============================================================================
+  // DATABASE STATISTICS HANDLERS
+  // ============================================================================
+
+  /**
+   * @summary Handles player statistics request via WebSocket.
+   *
+   * @description
+   * Returns comprehensive player statistics from the database.
+   * If no userId provided, returns stats for the authenticated user.
+   *
+   * @pattern Repository Pattern - Uses StatisticsRepository for data access
+   * @pattern 6NF Compliance - Role and team stats stored in separate tables
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Get stats message
+   *
+   * @private
+   */
+  private async handleGetStats(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'getStats' }>
+  ): Promise<void> {
+    try {
+      // Determine which user's stats to fetch
+      let userId = message.userId;
+      if (!userId) {
+        userId = this.authenticatedUsers.get(connection.id);
+        if (!userId) {
+          const response: StatsResponseMessage = {
+            type: 'statsResponse',
+            stats: null,
+            error: 'Not authenticated. Login or provide userId.',
+            timestamp: Date.now()
+          };
+          connection.send(response);
+          return;
+        }
+      }
+
+      const stats = await this.statsRepo.getPlayerStats(userId);
+
+      if (!stats) {
+        const response: StatsResponseMessage = {
+          type: 'statsResponse',
+          stats: null,
+          error: 'User not found',
+          timestamp: Date.now()
+        };
+        connection.send(response);
+        return;
+      }
+
+      // PlayerStatsDto already includes roleStats and teamStats from 6NF tables
+      const statsData: PlayerStatsData = {
+        userId: stats.userId,
+        displayName: stats.displayName ?? 'Unknown',
+        gamesPlayed: stats.gamesPlayed,
+        wins: stats.wins,
+        losses: stats.losses,
+        winRate: stats.winRate,
+        currentStreak: stats.currentStreak,
+        bestStreak: stats.bestStreak,
+        roleStats: stats.roleStats.map(r => ({
+          roleCode: r.roleCode,
+          roleName: r.roleName,
+          gamesPlayed: r.gamesPlayed,
+          wins: r.wins,
+          winRate: r.winRate
+        })),
+        teamStats: stats.teamStats.map(t => ({
+          teamCode: t.teamCode,
+          teamName: t.teamName,
+          gamesPlayed: t.gamesPlayed,
+          wins: t.wins,
+          winRate: t.winRate
+        }))
+      };
+
+      const response: StatsResponseMessage = {
+        type: 'statsResponse',
+        stats: statsData,
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    } catch (error) {
+      const response: StatsResponseMessage = {
+        type: 'statsResponse',
+        stats: null,
+        error: error instanceof Error ? error.message : 'Failed to get stats',
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    }
+  }
+
+  /**
+   * @summary Handles leaderboard request via WebSocket.
+   *
+   * @description
+   * Returns paginated leaderboard entries sorted by win rate.
+   *
+   * @pattern Repository Pattern - Uses StatisticsRepository for leaderboard query
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Get leaderboard message
+   *
+   * @private
+   */
+  private async handleGetLeaderboard(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'getLeaderboard' }>
+  ): Promise<void> {
+    try {
+      const limit = message.limit ?? 100;
+      const offset = message.offset ?? 0;
+
+      const entries = await this.statsRepo.getLeaderboard(limit, offset);
+
+      const leaderboardEntries: LeaderboardEntry[] = entries.map((entry, index) => ({
+        rank: offset + index + 1,
+        userId: entry.userId,
+        displayName: entry.displayName ?? 'Unknown',
+        gamesPlayed: entry.gamesPlayed,
+        wins: entry.wins,
+        winRate: entry.gamesPlayed > 0 ? entry.wins / entry.gamesPlayed : 0
+      }));
+
+      const response: LeaderboardResponseMessage = {
+        type: 'leaderboardResponse',
+        entries: leaderboardEntries,
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    } catch (error) {
+      const response: LeaderboardResponseMessage = {
+        type: 'leaderboardResponse',
+        entries: [],
+        error: error instanceof Error ? error.message : 'Failed to get leaderboard',
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    }
+  }
+
+  // ============================================================================
+  // DATABASE REPLAY HANDLERS
+  // ============================================================================
+
+  /**
+   * @summary Handles game replay request via WebSocket.
+   *
+   * @description
+   * Returns full game replay data including night actions, statements, and votes.
+   * Follows 6NF decomposition for multi-valued attributes.
+   *
+   * @pattern Repository Pattern - Uses ReplayRepository for 6NF data retrieval
+   * @pattern 6NF Compliance - Targets, views, swaps stored in separate tables
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Get replay message
+   *
+   * @private
+   */
+  private async handleGetReplay(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'getReplay' }>
+  ): Promise<void> {
+    try {
+      const gameId = message.gameId;
+
+      // Get all replay data using 6NF repository
+      const nightActions = await this.replayRepo.getNightActions(gameId);
+      const statements = await this.replayRepo.getStatements(gameId);
+      const votes = await this.replayRepo.getVotes(gameId);
+
+      if (nightActions.length === 0 && statements.length === 0 && votes.length === 0) {
+        const response: ReplayResponseMessage = {
+          type: 'replayResponse',
+          gameId,
+          replay: null,
+          error: 'Game not found or no replay data available',
+          timestamp: Date.now()
+        };
+        connection.send(response);
+        return;
+      }
+
+      const replayData: GameReplayData = {
+        nightActions: nightActions.map(action => ({
+          actorPlayerId: action.actorPlayerId,
+          performedAsRole: action.performedAsRole,
+          actionType: action.actionType,
+          sequenceOrder: action.sequenceOrder,
+          // Convert null to undefined for protocol compatibility
+          targets: (action.targets ?? []).map(t => ({
+            targetType: t.targetType,
+            targetPlayerId: t.targetPlayerId ?? undefined,
+            targetCenterPosition: t.targetCenterPosition ?? undefined
+          })),
+          views: (action.views ?? []).map(v => ({
+            viewSourceType: v.viewSourceType,
+            viewedRole: v.viewedRole
+          })),
+          swap: action.swap ? {
+            fromType: action.swap.fromType,
+            toType: action.swap.toType
+          } : undefined,
+          copy: action.copy ? {
+            copiedFromPlayerId: action.copy.copiedFromPlayerId,
+            copiedRole: action.copy.copiedRole
+          } : undefined
+        })),
+        statements: statements.map(stmt => ({
+          speakerPlayerId: stmt.speakerPlayerId,
+          text: stmt.text,
+          sequenceOrder: stmt.sequenceOrder
+        })),
+        // Filter out null targetPlayerId votes (abstentions) or convert if needed
+        votes: votes
+          .filter(vote => vote.targetPlayerId !== null)
+          .map(vote => ({
+            voterPlayerId: vote.voterPlayerId,
+            targetPlayerId: vote.targetPlayerId!
+          }))
+      };
+
+      const response: ReplayResponseMessage = {
+        type: 'replayResponse',
+        gameId,
+        replay: replayData,
+        timestamp: Date.now()
+      };
+      connection.send(response);
+    } catch (error) {
+      const response: ReplayResponseMessage = {
+        type: 'replayResponse',
+        gameId: message.gameId,
+        replay: null,
+        error: error instanceof Error ? error.message : 'Failed to get replay',
+        timestamp: Date.now()
+      };
+      connection.send(response);
     }
   }
 

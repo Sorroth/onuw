@@ -64,6 +64,7 @@ export class PlayerView {
    * @param {string} roomPlayerId - The player's ID in the room (e.g., "player-abc123")
    * @param {Map<string, string>} gameToRoomMap - Maps game player IDs to room player IDs
    * @param {Map<string, { name: string; isAI: boolean; isConnected: boolean }>} playerInfo - Additional player info
+   * @param {number | null} [timeRemaining=null] - Remaining time in current phase (seconds), or null if no limit
    *
    * @returns {SerializablePlayerGameView} Sanitized view for the player
    *
@@ -76,7 +77,8 @@ export class PlayerView {
    *   'player-1',
    *   'player-abc123',
    *   gameToRoomMap,
-   *   playerInfoMap
+   *   playerInfoMap,
+   *   120 // 2 minutes remaining
    * );
    * ```
    */
@@ -85,7 +87,8 @@ export class PlayerView {
     gamePlayerId: string,
     roomPlayerId: string,
     gameToRoomMap: Map<string, string>,
-    playerInfo: Map<string, { name: string; isAI: boolean; isConnected: boolean }>
+    playerInfo: Map<string, { name: string; isAI: boolean; isConnected: boolean }>,
+    timeRemaining: number | null = null
   ): SerializablePlayerGameView {
     // Get player's starting role
     const startingRole = game.getPlayerStartingRole(gamePlayerId);
@@ -123,7 +126,7 @@ export class PlayerView {
       finalRoles: endGameInfo.finalRoles,
       winningTeams: endGameInfo.winningTeams,
       winningPlayers: endGameInfo.winningPlayers,
-      timeRemaining: null, // TODO: Implement timer
+      timeRemaining,
       isEliminated: endGameInfo.eliminatedPlayers?.includes(roomPlayerId) ?? false
     };
   }
@@ -168,6 +171,13 @@ export class PlayerView {
   ): PublicPlayerInfo[] {
     const players: PublicPlayerInfo[] = [];
 
+    // Get statements and votes to track hasSpoken/hasVoted
+    const statements = game.getStatements?.() || [];
+    const votes = game.getVotes?.() || new Map<string, string>();
+
+    // Build set of game IDs that have spoken
+    const spokenGameIds = new Set(statements.map(s => s.playerId));
+
     for (const [gameId, roomId] of gameToRoomMap) {
       const info = playerInfo.get(roomId);
       if (info) {
@@ -176,8 +186,8 @@ export class PlayerView {
           name: info.name,
           isConnected: info.isConnected,
           isAI: info.isAI,
-          hasSpoken: false, // TODO: Track from game state
-          hasVoted: false   // TODO: Track from game state
+          hasSpoken: spokenGameIds.has(gameId),
+          hasVoted: votes.has(gameId)
         });
       }
     }

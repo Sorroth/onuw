@@ -497,9 +497,15 @@ export class Game implements IGameContext, INightActionGameState {
   /**
    * @summary Executes night actions for roles at a specific wake order.
    *
-   * @param {number} roleOrder - The night wake order (1-9)
+   * @param {number} roleOrder - The night wake order (1-9, plus 10 for Doppel-Insomniac)
    */
   async executeNightActionsForRole(roleOrder: number): Promise<void> {
+    // Order 10 is special: Doppelganger who copied Insomniac wakes at very end
+    if (roleOrder === 10) {
+      await this.executeDoppelInsomniacAction();
+      return;
+    }
+
     // Find the role name for this order
     const roleName = NIGHT_WAKE_ORDER.find(
       rn => RoleFactory.createRole(rn).nightOrder === roleOrder
@@ -516,6 +522,53 @@ export class Game implements IGameContext, INightActionGameState {
       if (player.startingRole.name === roleName) {
         await this.executeNightActionForPlayer(player);
       }
+    }
+  }
+
+  /**
+   * @summary Executes the Doppel-Insomniac action at the end of night.
+   *
+   * @description
+   * Doppelganger who copied Insomniac wakes at the very end of night
+   * to see their final card (after all swaps have occurred).
+   *
+   * @private
+   */
+  private async executeDoppelInsomniacAction(): Promise<void> {
+    const doppelInsomniacs = this.getDoppelgangersWhoCopied(RoleName.INSOMNIAC);
+
+    for (const playerId of doppelInsomniacs) {
+      const player = this.players.get(playerId);
+      if (!player) continue;
+
+      const agent = this.agents.get(playerId);
+      if (!agent) continue;
+
+      // Get their current role (after all swaps)
+      const finalRole = player.currentRole.name;
+
+      const result: NightActionResult = {
+        actorId: playerId,
+        roleName: RoleName.DOPPELGANGER, // Acting as Doppel-Insomniac
+        actionType: 'VIEW',
+        success: true,
+        info: {
+          viewed: [{ playerId, role: finalRole }]
+        }
+      };
+
+      // Store result
+      const results = this.nightResults.get(playerId) || [];
+      results.push(result);
+      this.nightResults.set(playerId, results);
+
+      // Notify agent
+      agent.receiveNightInfo(result);
+
+      this.logAuditEvent('DOPPEL_INSOMNIAC_WOKE', {
+        playerId,
+        sawRole: finalRole
+      });
     }
   }
 
