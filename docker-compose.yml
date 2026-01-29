@@ -63,6 +63,8 @@ services:
     container_name: onuw-server
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=8080
@@ -76,15 +78,7 @@ services:
       - BCRYPT_ROUNDS=12
       # OAuth Base URL (for callbacks)
       - BASE_URL=http://localhost:8080
-      # Google OAuth (optional - get from https://console.cloud.google.com/)
-      - GOOGLE_CLIENT_ID=your-google-client-id
-      - GOOGLE_CLIENT_SECRET=your-google-client-secret
-      # Discord OAuth (optional - get from https://discord.com/developers/applications)
-      - DISCORD_CLIENT_ID=your-discord-client-id
-      - DISCORD_CLIENT_SECRET=your-discord-client-secret
-      # GitHub OAuth (optional - get from https://github.com/settings/developers)
-      - GITHUB_CLIENT_ID=your-github-client-id
-      - GITHUB_CLIENT_SECRET=your-github-client-secret
+      # OAuth credentials loaded from .env file (create .env with your secrets)
     depends_on:
       postgres:
         condition: service_healthy
