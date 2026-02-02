@@ -4,6 +4,9 @@ dist/
 .DS_Store
 nul
 
+# Runtime data
+data/
+
 # Local environment secrets
 .env
 .env.local

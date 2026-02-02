@@ -183,15 +183,13 @@ export class DoppelgangerAction extends AbstractNightAction {
     gameState.setDoppelgangerCopiedRole(context.myPlayerId, copiedRole);
 
     // Build the result info
+    // Note: Don't include 'viewed' here - the 'copied' field already shows what role was copied
+    // 'viewed' would be redundant and cause duplicate display ("Bot Alice: Insomniac" + "You copied Bot Alice and became Insomniac")
     const resultInfo: NightActionInfo = {
       copied: {
         fromPlayerId: targetId,
         role: copiedRole
-      },
-      viewed: [{
-        playerId: targetId,
-        role: copiedRole
-      }]
+      }
     };
 
     // For roles that require player input, notify them what role they copied BEFORE asking
@@ -202,11 +200,7 @@ export class DoppelgangerAction extends AbstractNightAction {
         copied: {
           fromPlayerId: targetId,
           role: copiedRole
-        },
-        viewed: [{
-          playerId: targetId,
-          role: copiedRole
-        }]
+        }
       });
       agent.receiveNightInfo(copyInfo);
     }

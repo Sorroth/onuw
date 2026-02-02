@@ -280,6 +280,23 @@ export class RoomManager {
   }
 
   /**
+   * @summary Gets public rooms that are waiting for players.
+   *
+   * @description
+   * Returns rooms where isPrivate=false and status=WAITING.
+   * Used for the public room browser feature.
+   *
+   * @returns {Room[]} Public waiting rooms
+   *
+   * @pattern Information Hiding - Only exposes joinable public rooms
+   */
+  getPublicRooms(): Room[] {
+    return Array.from(this.rooms.values()).filter(
+      room => room.getStatus() === RoomStatus.WAITING && !room.getConfig().isPrivate
+    );
+  }
+
+  /**
    * @summary Gets rooms that are currently playing.
    *
    * @returns {Room[]} Playing rooms

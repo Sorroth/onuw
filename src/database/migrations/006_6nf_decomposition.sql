@@ -267,6 +267,11 @@ DECLARE
     v_starting_role VARCHAR(50);
     v_final_team VARCHAR(50);
 BEGIN
+    -- Skip AI players (they have NULL user_id per business rule)
+    IF NEW.user_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
     -- Get the win status and role info
     v_is_win := NEW.is_winner;
 

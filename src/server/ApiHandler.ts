@@ -201,6 +201,12 @@ export class ApiHandler {
       return;
     }
 
+    // OAuth token exchange (for NextAuth.js integration)
+    if (path === '/api/auth/oauth' && method === 'POST') {
+      await this.handleOAuthExchange(req, res);
+      return;
+    }
+
     // OAuth providers list
     if (path === '/api/auth/providers' && method === 'GET') {
       await this.handleGetOAuthProviders(res);
@@ -443,6 +449,79 @@ export class ApiHandler {
   // ===========================================================================
   // OAUTH HANDLERS
   // ===========================================================================
+
+  /**
+   * @summary Handles direct OAuth token exchange from NextAuth.js.
+   *
+   * @description
+   * This endpoint allows NextAuth.js (or any OAuth client) to exchange
+   * OAuth user information for a backend JWT token. This follows the
+   * Adapter Pattern - adapting external OAuth to our internal auth system.
+   *
+   * @pattern Adapter Pattern - Converts external OAuth data to internal format
+   * @pattern Command Pattern - OAuth exchange encapsulated as a command
+   *
+   * @param {IncomingMessage} req - HTTP request with OAuth data
+   * @param {ServerResponse} res - HTTP response with JWT token
+   *
+   * @private
+   */
+  private async handleOAuthExchange(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = await this.parseBody(req);
+
+    const providerCode = body.providerCode as string;
+    const externalId = body.externalId as string;
+    const email = body.email as string;
+    const displayName = body.displayName as string;
+    const avatarUrl = body.avatarUrl as string | undefined;
+    const accessToken = body.accessToken as string | undefined;
+    const refreshToken = body.refreshToken as string | undefined;
+
+    // Validate required fields
+    if (!providerCode || !externalId || !email || !displayName) {
+      this.sendJson(res, 400, {
+        success: false,
+        error: 'Missing required fields: providerCode, externalId, email, displayName'
+      });
+      return;
+    }
+
+    // Validate provider code
+    const validProviders = ['google', 'discord', 'github', 'twitch'];
+    if (!validProviders.includes(providerCode)) {
+      this.sendJson(res, 400, {
+        success: false,
+        error: `Invalid provider code. Must be one of: ${validProviders.join(', ')}`
+      });
+      return;
+    }
+
+    try {
+      // Use the existing oauthLogin method from AuthService
+      const result = await this.authService.oauthLogin({
+        providerCode,
+        externalId,
+        email,
+        displayName,
+        avatarUrl,
+        accessToken,
+        refreshToken
+      });
+
+      this.sendJson(res, 200, {
+        success: true,
+        data: {
+          token: result.token,
+          userId: result.user.userId,
+          displayName: result.user.displayName ?? displayName,
+          isAdmin: result.user.isAdmin
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'OAuth exchange failed';
+      this.sendJson(res, 400, { success: false, error: message });
+    }
+  }
 
   /**
    * @summary Gets list of configured OAuth providers.

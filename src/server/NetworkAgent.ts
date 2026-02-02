@@ -91,6 +91,12 @@ export class NetworkAgent implements IAgent {
   readonly isRemote: boolean = true;
 
   /**
+   * @summary Whether timeouts are disabled (debug mode).
+   * @private
+   */
+  private disableTimeouts: boolean = false;
+
+  /**
    * @summary WebSocket connection to the remote player.
    * @private
    */
@@ -127,15 +133,19 @@ export class NetworkAgent implements IAgent {
    *
    * @param {string} id - Unique identifier for this player (game player ID)
    * @param {IClientConnection} connection - WebSocket connection to the client
+   * @param {boolean} [disableTimeouts=false] - Whether to disable action timeouts (debug mode)
    *
    * @example
    * ```typescript
    * const agent = new NetworkAgent('player-1', connection);
+   * // Or with disabled timeouts for debug mode:
+   * const debugAgent = new NetworkAgent('player-1', connection, true);
    * ```
    */
-  constructor(id: string, connection: IClientConnection) {
+  constructor(id: string, connection: IClientConnection, disableTimeouts: boolean = false) {
     this.id = id;
     this.connection = connection;
+    this.disableTimeouts = disableTimeouts;
     this.setupMessageHandler();
   }
 
@@ -208,20 +218,29 @@ export class NetworkAgent implements IAgent {
     timeoutMs: number = 60000
   ): Promise<T> {
     const requestId = this.generateRequestId();
+    console.log(`[NetworkAgent ${this.id}] sendRequest: actionType=${actionType}, timeoutMs=${timeoutMs}, disableTimeouts=${this.disableTimeouts}`);
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(requestId);
-        reject(new Error(`Request ${actionType} timed out`));
-      }, timeoutMs);
+      // Only set timeout if timeouts are not disabled
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      if (!this.disableTimeouts) {
+        console.log(`[NetworkAgent ${this.id}] Setting ${timeoutMs}ms timeout for ${actionType}`);
+        timeout = setTimeout(() => {
+          console.log(`[NetworkAgent ${this.id}] TIMEOUT FIRED for ${actionType} - this should not happen if timers are disabled!`);
+          this.pendingRequests.delete(requestId);
+          reject(new Error(`Request ${actionType} timed out`));
+        }, timeoutMs);
+      } else {
+        console.log(`[NetworkAgent ${this.id}] Timeouts DISABLED - no timeout set for ${actionType}`);
+      }
 
       this.pendingRequests.set(requestId, {
         resolve: (value) => {
-          clearTimeout(timeout);
+          if (timeout) clearTimeout(timeout);
           resolve(value as T);
         },
         reject: (error) => {
-          clearTimeout(timeout);
+          if (timeout) clearTimeout(timeout);
           reject(error);
         }
       });

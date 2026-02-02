@@ -93,6 +93,7 @@ export interface DbUser {
   email: string;
   password_hash: string | null;
   email_verified: boolean;
+  is_admin: boolean;
   created_at: Date;
 }
 
@@ -516,6 +517,7 @@ export interface UserDto {
   userId: string;
   email: string;
   emailVerified: boolean;
+  isAdmin: boolean;
   displayName: string;
   avatarUrl: string | null;
   createdAt: Date;

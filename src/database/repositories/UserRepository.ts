@@ -89,6 +89,7 @@ export class UserRepository implements IUserRepository {
       userId: result.user_id,
       email: result.email,
       emailVerified: result.email_verified,
+      isAdmin: result.is_admin,
       displayName: result.display_name,
       avatarUrl: result.avatar_url,
       createdAt: result.created_at
@@ -116,6 +117,7 @@ export class UserRepository implements IUserRepository {
       userId: result.user_id,
       email: result.email,
       emailVerified: result.email_verified,
+      isAdmin: result.is_admin,
       displayName: result.display_name,
       avatarUrl: result.avatar_url,
       createdAt: result.created_at,
@@ -146,6 +148,7 @@ export class UserRepository implements IUserRepository {
       userId: result.user_id,
       email: result.email,
       emailVerified: result.email_verified,
+      isAdmin: result.is_admin,
       displayName: result.display_name,
       avatarUrl: result.avatar_url,
       createdAt: result.created_at
@@ -309,6 +312,7 @@ export class UserRepository implements IUserRepository {
       userId: user.user_id,
       email: user.email,
       emailVerified: user.email_verified,
+      isAdmin: user.is_admin,
       displayName: profile.display_name,
       avatarUrl: profile.avatar_url,
       createdAt: user.created_at

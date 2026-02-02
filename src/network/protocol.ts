@@ -422,6 +422,9 @@ export interface SerializablePlayerGameView {
 
   /** Whether this player was eliminated */
   readonly isEliminated?: boolean;
+
+  /** Debug information (only for admin players with debug mode enabled) */
+  readonly debugInfo?: DebugInfo;
 }
 
 // ============================================================================
@@ -555,7 +558,23 @@ export interface DebugOptions {
   /** Force a specific starting role for the host player */
   readonly forceRole?: RoleName;
   /** Force all bots to vote for the host player (for testing Hunter ability) */
-  readonly forceBotsVoteForHost?: boolean;
+  readonly forceHostElimination?: boolean;
+  /** Reveal all players' starting roles to the host (for Doppelganger testing) */
+  readonly revealAllRoles?: boolean;
+  /** Show center cards to the host (for testing Drunk, Werewolf peek, etc.) */
+  readonly showCenterCards?: boolean;
+  /** Disable all game timeouts (timers display but don't expire) */
+  readonly disableTimers?: boolean;
+}
+
+/**
+ * @summary Debug information included in player view for admin testing.
+ */
+export interface DebugInfo {
+  /** All players' starting roles (before any swaps) */
+  readonly allPlayerRoles?: Record<PlayerId, RoleName>;
+  /** Center cards (positions 0, 1, 2) */
+  readonly centerCards?: readonly RoleName[];
 }
 
 /**
@@ -569,12 +588,57 @@ export interface CreateRoomMessage extends TimestampedMessage {
 }
 
 /**
+ * @summary Update room configuration (host only).
+ */
+export interface UpdateRoomConfigMessage extends TimestampedMessage {
+  readonly type: 'updateRoomConfig';
+  readonly config: Partial<RoomConfig>;
+}
+
+/**
  * @summary Join an existing room.
  */
 export interface JoinRoomMessage extends TimestampedMessage {
   readonly type: 'joinRoom';
   readonly roomCode: RoomCode;
   readonly playerName: string;
+}
+
+/**
+ * @summary Public room info for room browser.
+ *
+ * @description
+ * Contains only non-sensitive room information for display in the
+ * public room list. Used by players to discover joinable rooms.
+ *
+ * @pattern Information Hiding - Exposes only public room details
+ */
+export interface PublicRoomInfo {
+  /** Unique room code for joining */
+  readonly roomCode: RoomCode;
+
+  /** Display name of the host player */
+  readonly hostName: string;
+
+  /** Current number of players in the room */
+  readonly playerCount: number;
+
+  /** Maximum players allowed */
+  readonly maxPlayers: number;
+
+  /** Selected roles (for preview) */
+  readonly roles: readonly RoleName[];
+}
+
+/**
+ * @summary Request list of public rooms.
+ *
+ * @description
+ * Client requests a list of joinable public rooms. Server responds
+ * with PublicRoomsResponseMessage containing available rooms.
+ */
+export interface ListPublicRoomsMessage extends TimestampedMessage {
+  readonly type: 'listPublicRooms';
 }
 
 /**
@@ -613,6 +677,7 @@ export interface RemovePlayerMessage extends TimestampedMessage {
  */
 export interface StartGameMessage extends TimestampedMessage {
   readonly type: 'startGame';
+  readonly debug?: DebugOptions;
 }
 
 /**
@@ -716,7 +781,9 @@ export type ClientMessage =
   | AuthenticateMessage
   | DisconnectMessage
   | CreateRoomMessage
+  | UpdateRoomConfigMessage
   | JoinRoomMessage
+  | ListPublicRoomsMessage
   | LeaveRoomMessage
   | SetReadyMessage
   | AddAIMessage
@@ -745,6 +812,8 @@ export interface AuthenticatedMessage extends TimestampedMessage {
   readonly playerId: PlayerId;
   readonly playerName: string;
   readonly serverVersion: string;
+  /** Whether the authenticated user has admin privileges */
+  readonly isAdmin?: boolean;
 }
 
 /**
@@ -772,6 +841,20 @@ export interface RoomCreatedMessage extends TimestampedMessage {
 export interface RoomJoinedMessage extends TimestampedMessage {
   readonly type: 'roomJoined';
   readonly state: RoomState;
+}
+
+/**
+ * @summary Response with list of public rooms.
+ *
+ * @description
+ * Server response to ListPublicRoomsMessage containing all available
+ * public rooms that are waiting for players.
+ *
+ * @pattern Observer Pattern - Provides snapshot of available rooms
+ */
+export interface PublicRoomsResponseMessage extends TimestampedMessage {
+  readonly type: 'publicRoomsResponse';
+  readonly rooms: readonly PublicRoomInfo[];
 }
 
 /**
@@ -1352,6 +1435,7 @@ export type ServerMessage =
   | ErrorMessage
   | RoomCreatedMessage
   | RoomJoinedMessage
+  | PublicRoomsResponseMessage
   | RoomUpdateMessage
   | RoomClosedMessage
   | GameStartedMessage
@@ -1389,10 +1473,11 @@ export function isClientMessage(data: unknown): data is ClientMessage {
 
   const msg = data as Record<string, unknown>;
   const validTypes: ClientMessage['type'][] = [
-    'authenticate', 'disconnect', 'createRoom', 'joinRoom', 'leaveRoom',
+    'authenticate', 'disconnect', 'createRoom', 'joinRoom', 'listPublicRooms', 'leaveRoom',
     'setReady', 'addAI', 'removePlayer', 'startGame', 'actionResponse',
     'getState', 'ping', 'submitStatement', 'readyToVote',
-    'login', 'register', 'getStats', 'getLeaderboard', 'getReplay'
+    'login', 'register', 'getStats', 'getLeaderboard', 'getReplay',
+    'updateRoomConfig'
   ];
 
   return typeof msg.type === 'string' && validTypes.includes(msg.type as ClientMessage['type']);

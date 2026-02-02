@@ -14,6 +14,9 @@
  * @pattern Observer Pattern - WebSocket for real-time updates
  */
 
+// Load environment variables from .env file (for local development)
+import 'dotenv/config';
+
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocketServer as WsServer, WebSocket } from 'ws';
 import { IWebSocketServerBackend } from './network/WebSocketServer';

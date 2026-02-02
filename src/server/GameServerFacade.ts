@@ -58,6 +58,7 @@ import {
   TimeoutStrategyFactory,
   TimeoutStrategyType
 } from './TimeoutStrategies';
+import { AdminAuthorizationService } from './AdminAuthorizationService';
 import { PlayerViewFactory } from '../players/PlayerView';
 import { Game } from '../core/Game';
 import { AuthService, getAuthService } from '../services';
@@ -148,6 +149,9 @@ export class GameServerFacade {
   /** Authenticated database user IDs by connection ID */
   private readonly authenticatedUsers: Map<string, string> = new Map();
 
+  /** Admin authorization service */
+  private readonly adminAuth: AdminAuthorizationService;
+
   /** Authentication service for login/register */
   private readonly authService: AuthService;
 
@@ -199,6 +203,9 @@ export class GameServerFacade {
     this.authService = getAuthService();
     this.statsRepo = new StatisticsRepository();
     this.replayRepo = new ReplayRepository();
+
+    // Initialize admin authorization service
+    this.adminAuth = new AdminAuthorizationService();
 
     this.setupEventHandlers();
   }
@@ -295,8 +302,16 @@ export class GameServerFacade {
           this.handleCreateRoom(connection, message);
           break;
 
+        case 'updateRoomConfig':
+          this.handleUpdateRoomConfig(connection, message);
+          break;
+
         case 'joinRoom':
           this.handleJoinRoom(connection, message);
+          break;
+
+        case 'listPublicRooms':
+          this.handleListPublicRooms(connection);
           break;
 
         case 'leaveRoom':
@@ -316,7 +331,7 @@ export class GameServerFacade {
           break;
 
         case 'startGame':
-          this.handleStartGame(connection);
+          this.handleStartGame(connection, message);
           break;
 
         case 'actionResponse':
@@ -394,14 +409,21 @@ export class GameServerFacade {
 
     // If a JWT token is provided, validate it and link to database user
     let userId: string | undefined;
+    let isAdmin = false;
     if (token) {
       console.log(`WebSocket auth: Token received for ${playerName}`);
       try {
         const user = await this.authService.validateToken(token);
         if (user) {
           userId = user.userId;
+          isAdmin = user.isAdmin;
           this.authenticatedUsers.set(connection.id, userId);
-          console.log(`WebSocket auth: Linked ${playerName} to database user ${userId}`);
+          if (isAdmin) {
+            this.adminAuth.registerAdmin(connection.id);
+            console.log(`WebSocket auth: Admin user ${playerName} (${userId}) connected`);
+          } else {
+            console.log(`WebSocket auth: Linked ${playerName} to database user ${userId}`);
+          }
         } else {
           console.log(`WebSocket auth: Token valid but no user returned`);
         }
@@ -431,6 +453,7 @@ export class GameServerFacade {
       playerId,
       playerName: session.playerName,
       serverVersion: '2.0.0',
+      isAdmin,
       timestamp: Date.now()
     };
     connection.send(authMessage);
@@ -533,8 +556,14 @@ export class GameServerFacade {
     }
 
     try {
-      // Pass debug options if provided
-      const room = this.roomManager.createRoom(session.playerId, message.config, message.debug);
+      // Only allow debug options for admin users (uses centralized authorization)
+      const debug = this.adminAuth.authorizeDebugOptions(
+        connection.id,
+        message.debug,
+        session.playerId
+      );
+
+      const room = this.roomManager.createRoom(session.playerId, message.config, debug);
 
       // Get authenticated database user ID if available
       const userId = this.authenticatedUsers.get(connection.id);
@@ -562,6 +591,41 @@ export class GameServerFacade {
         connection,
         ErrorCodes.ROOM_FULL,
         error instanceof Error ? error.message : 'Failed to create room'
+      );
+    }
+  }
+
+  /**
+   * @summary Handles room configuration update.
+   *
+   * @param {IClientConnection} connection - Connection
+   * @param {ClientMessage} message - Update config message
+   *
+   * @private
+   */
+  private handleUpdateRoomConfig(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'updateRoomConfig' }>
+  ): void {
+    const session = this.getSession(connection);
+    if (!session || !session.roomCode) {
+      this.sendError(connection, ErrorCodes.NOT_IN_ROOM, 'Not in a room');
+      return;
+    }
+
+    const room = this.roomManager.getRoom(session.roomCode);
+    if (!room) {
+      return;
+    }
+
+    try {
+      room.updateConfig(session.playerId, message.config);
+      // Room broadcasts update to all players via broadcastRoomState
+    } catch (error) {
+      this.sendError(
+        connection,
+        ErrorCodes.NOT_HOST,
+        error instanceof Error ? error.message : 'Failed to update config'
       );
     }
   }
@@ -620,6 +684,43 @@ export class GameServerFacade {
   }
 
   /**
+   * @summary Handles list public rooms request.
+   *
+   * @description
+   * Returns a list of all public rooms that are waiting for players.
+   * Filters rooms by isPrivate=false and status=WAITING.
+   *
+   * @param {IClientConnection} connection - Connection requesting room list
+   *
+   * @pattern Observer Pattern - Provides snapshot of available rooms
+   * @private
+   */
+  private handleListPublicRooms(connection: IClientConnection): void {
+    const session = this.getSession(connection);
+    if (!session) {
+      this.sendError(connection, ErrorCodes.AUTH_REQUIRED, 'Not authenticated');
+      return;
+    }
+
+    // Get all public rooms that are waiting for players
+    const publicRooms = this.roomManager.getPublicRooms();
+
+    const response: ServerMessage = {
+      type: 'publicRoomsResponse',
+      rooms: publicRooms.map(room => ({
+        roomCode: room.getCode(),
+        hostName: room.getHostName(),
+        playerCount: room.getPlayerCount(),
+        maxPlayers: room.getConfig().maxPlayers,
+        roles: room.getConfig().roles
+      })),
+      timestamp: Date.now()
+    };
+
+    connection.send(response);
+  }
+
+  /**
    * @summary Handles leave room request.
    *
    * @param {IClientConnection} connection - Connection
@@ -660,6 +761,8 @@ export class GameServerFacade {
 
     const room = this.roomManager.getRoom(session.roomCode);
     if (!room) {
+      session.roomCode = null;
+      this.sendError(connection, ErrorCodes.ROOM_NOT_FOUND, 'Room no longer exists');
       return;
     }
 
@@ -697,6 +800,9 @@ export class GameServerFacade {
 
     const room = this.roomManager.getRoom(session.roomCode);
     if (!room) {
+      // Room was closed - clear session and notify client
+      session.roomCode = null;
+      this.sendError(connection, ErrorCodes.ROOM_NOT_FOUND, 'Room no longer exists');
       return;
     }
 
@@ -708,8 +814,24 @@ export class GameServerFacade {
     try {
       // Create a null connection for AI players (Null Object Pattern)
       const aiId = `ai-${++this.aiPlayerCounter}`;
-      const aiNames = ['Bot Alice', 'Bot Bob', 'Bot Charlie', 'Bot Diana', 'Bot Eve', 'Bot Frank'];
-      const aiName = message.aiName || aiNames[this.aiPlayerCounter % aiNames.length];
+
+      // Get names already used in this room to avoid duplicates
+      const usedNames = new Set(
+        room.getPlayers().map(p => p.name)
+      );
+
+      // Find an unused AI name for this room
+      const aiNames = ['Bot Alice', 'Bot Bob', 'Bot Charlie', 'Bot Diana', 'Bot Eve', 'Bot Frank',
+                       'Bot Grace', 'Bot Henry', 'Bot Ivy', 'Bot Jack'];
+      let aiName = message.aiName;
+      if (!aiName) {
+        // Find first unused name
+        aiName = aiNames.find(name => !usedNames.has(name));
+        // Fallback to numbered name if all names used
+        if (!aiName) {
+          aiName = `Bot Player ${this.aiPlayerCounter}`;
+        }
+      }
 
       const nullConnection = NullConnection.create(aiId);
 
@@ -743,6 +865,8 @@ export class GameServerFacade {
 
     const room = this.roomManager.getRoom(session.roomCode);
     if (!room) {
+      session.roomCode = null;
+      this.sendError(connection, ErrorCodes.ROOM_NOT_FOUND, 'Room no longer exists');
       return;
     }
 
@@ -752,6 +876,23 @@ export class GameServerFacade {
     }
 
     try {
+      // Get kicked player's connection before removing them
+      const kickedPlayer = room.getPlayer(message.playerId);
+      if (kickedPlayer && kickedPlayer.connection) {
+        // Notify the kicked player
+        kickedPlayer.connection.send({
+          type: 'roomClosed',
+          reason: 'You have been removed from the room',
+          timestamp: Date.now()
+        });
+
+        // Clear their session's room code
+        const kickedSession = this.getSession(kickedPlayer.connection);
+        if (kickedSession) {
+          kickedSession.roomCode = null;
+        }
+      }
+
       room.removePlayer(message.playerId);
     } catch (error) {
       this.sendError(
@@ -769,7 +910,10 @@ export class GameServerFacade {
    *
    * @private
    */
-  private handleStartGame(connection: IClientConnection): void {
+  private handleStartGame(
+    connection: IClientConnection,
+    message: Extract<ClientMessage, { type: 'startGame' }>
+  ): void {
     const session = this.getSession(connection);
     if (!session || !session.roomCode) {
       this.sendError(connection, ErrorCodes.NOT_IN_ROOM, 'Not in a room');
@@ -782,6 +926,20 @@ export class GameServerFacade {
     }
 
     try {
+      // Apply debug options if provided by an admin (uses centralized authorization)
+      console.log(`WebSocket: ${session.playerId} starting game with debug options:`, message.debug);
+      const authorizedDebug = this.adminAuth.authorizeDebugOptions(
+        connection.id,
+        message.debug,
+        session.playerId
+      );
+      if (authorizedDebug) {
+        room.setDebugOptions(authorizedDebug);
+        console.log(`WebSocket: Admin ${session.playerId} applied debug options:`, authorizedDebug);
+      } else if (message.debug) {
+        console.log(`WebSocket: Debug options REJECTED for ${session.playerId} (not admin). Options were:`, message.debug);
+      }
+
       const game = room.startGame(session.playerId);
       // Game started - room handles broadcasting
     } catch (error) {
@@ -948,6 +1106,8 @@ export class GameServerFacade {
     // Clean up mappings
     this.connectionToSession.delete(connection.id);
     this.sessions.delete(playerId);
+    this.authenticatedUsers.delete(connection.id);
+    this.adminAuth.unregisterAdmin(connection.id);
 
     // Handle room disconnection
     if (session.roomCode) {

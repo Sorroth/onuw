@@ -1,0 +1,269 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0f0f1a;
+  --foreground: #f5f5f5;
+
+  /* Team colors */
+  --werewolf-red: #dc2626;
+  --village-blue: #2563eb;
+  --tanner-brown: #92400e;
+
+  /* Phase colors */
+  --night-purple: #1e1b4b;
+  --day-cream: #fef3c7;
+
+  /* Layout dimensions */
+  --header-height: 72px;
+  --footer-height: 80px;
+  --sidebar-width: 260px;
+  --sidebar-width-md: 220px;
+
+  /* Phase overlay colors */
+  --phase-night: rgba(30, 27, 75, 0.4);
+  --phase-day: rgba(254, 243, 199, 0.08);
+  --phase-voting: rgba(127, 29, 29, 0.15);
+  --phase-results: rgba(20, 83, 45, 0.15);
+}
+
+/* Mobile breakpoint - smaller layout dimensions */
+@media (max-width: 640px) {
+  :root {
+    --header-height: 56px;
+    --footer-height: 64px;
+    --sidebar-width: 200px;
+    --sidebar-width-md: 180px;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1f1f2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Night phase overlay animation */
+@keyframes night-pulse {
+  0%, 100% {
+    background-color: rgba(30, 27, 75, 0.95);
+  }
+  50% {
+    background-color: rgba(30, 27, 75, 0.85);
+  }
+}
+
+.night-overlay {
+  animation: night-pulse 4s ease-in-out infinite;
+}
+
+/* Card flip animation */
+@keyframes card-flip {
+  0% {
+    transform: rotateY(0deg);
+  }
+  100% {
+    transform: rotateY(180deg);
+  }
+}
+
+.card-flip {
+  animation: card-flip 0.6s ease-in-out forwards;
+}
+
+/* Selection pulse */
+@keyframes selection-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+}
+
+.selection-pulse {
+  animation: selection-pulse 1.5s ease-in-out infinite;
+}
+
+/* Warning pulse for timer */
+@keyframes warning-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.warning-pulse {
+  animation: warning-pulse 0.5s ease-in-out infinite;
+}
+
+/* Vote badge pulse animation */
+@keyframes vote-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.vote-pulse {
+  animation: vote-pulse 0.4s ease-out;
+}
+
+/* Phase transition animation */
+@keyframes phase-enter {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.phase-enter {
+  animation: phase-enter 0.3s ease-out forwards;
+}
+
+/* Center card reveal animation */
+@keyframes card-reveal {
+  0% {
+    transform: rotateY(180deg);
+  }
+  100% {
+    transform: rotateY(0deg);
+  }
+}
+
+.card-reveal {
+  animation: card-reveal 0.5s ease-out forwards;
+}
+
+/* Eliminated player overlay */
+.eliminated-overlay {
+  position: relative;
+}
+
+.eliminated-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(220, 38, 38, 0.3);
+  border-radius: inherit;
+}
+
+/* Chat panel slide animation */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.chat-panel-enter {
+  animation: slide-in-right 0.25s ease-out forwards;
+}
+
+.chat-panel-exit {
+  animation: slide-out-right 0.2s ease-in forwards;
+}
+
+/* Speech bubble animations */
+@keyframes bubble-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.8) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes bubble-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.speech-bubble-enter {
+  animation: bubble-appear 0.2s ease-out forwards;
+}
+
+.speech-bubble-exit {
+  animation: bubble-fade 0.3s ease-out forwards;
+}
+
+/* Player popup animation */
+@keyframes popup-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.popup-enter {
+  animation: popup-appear 0.15s ease-out forwards;
+}
+
+/* Force scrollable container for statement popup */
+@layer utilities {
+  .statement-scroll-container {
+    height: clamp(100px, 20vh, 160px) !important;
+    max-height: clamp(100px, 20vh, 160px) !important;
+    overflow-y: scroll !important;
+    overscroll-behavior: contain !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    pointer-events: auto !important;
+    touch-action: pan-y !important;
+  }
+}
+

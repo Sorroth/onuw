@@ -322,12 +322,35 @@ export class Room {
   }
 
   /**
+   * @summary Sets debug options for testing.
+   * Must be called before game starts.
+   *
+   * @param {DebugOptions} options - Debug options to set
+   */
+  setDebugOptions(options: DebugOptions): void {
+    if (this.status !== RoomStatus.WAITING) {
+      throw new Error('Cannot set debug options after game has started');
+    }
+    this.debugOptions = options;
+  }
+
+  /**
    * @summary Gets the host player ID.
    *
    * @returns {PlayerId} Host ID
    */
   getHostId(): PlayerId {
     return this.hostId;
+  }
+
+  /**
+   * @summary Gets the host player's display name.
+   *
+   * @returns {string} Host's display name
+   */
+  getHostName(): string {
+    const host = this.players.get(this.hostId);
+    return host?.name ?? 'Unknown';
   }
 
   /**
@@ -422,6 +445,9 @@ export class Room {
     this.emitEvent('configChanged', {
       config: this.config
     });
+
+    // Broadcast updated room state to all players
+    this.broadcastRoomState();
   }
 
   /**
@@ -543,18 +569,13 @@ export class Room {
    * @param {PlayerId} playerId - Player submitting the statement
    * @param {string} statement - The statement text
    *
-   * @throws {Error} If not in DAY phase or player not in game
+   * @throws {Error} If game not in progress or player not in game
    *
    * @pattern Observer - Statement is broadcast to all players
    */
   submitStatement(playerId: PlayerId, statement: string): void {
     if (this.status !== RoomStatus.PLAYING || !this.game) {
       throw new Error('Game is not in progress');
-    }
-
-    const currentPhase = this.game.getPhase();
-    if (currentPhase !== GamePhase.DAY) {
-      throw new Error('Can only submit statements during the DAY phase');
     }
 
     const player = this.players.get(playerId);
@@ -647,9 +668,9 @@ export class Room {
       return false;
     }
 
-    // Check all players are ready
+    // Check all players are ready (host is always considered ready)
     for (const player of this.players.values()) {
-      if (!player.isReady) {
+      if (!player.isReady && player.id !== this.hostId) {
         return false;
       }
     }
@@ -678,7 +699,7 @@ export class Room {
     }
 
     const notReady = Array.from(this.players.values())
-      .filter(p => !p.isReady)
+      .filter(p => !p.isReady && p.id !== this.hostId)  // Host is always ready
       .map(p => p.name);
 
     if (notReady.length > 0) {
@@ -779,12 +800,38 @@ export class Room {
         const startingRole = this.game.getPlayerStartingRole(gamePlayerId);
 
         // Use PlayerView factory to create sanitized game view
-        const view = PlayerView.forGameStart(
+        let view = PlayerView.forGameStart(
           roomPlayer.id,
           this.code,
           startingRole,
           publicPlayers
         );
+
+        // Add debug info for host if debug options are enabled
+        if (roomPlayer.id === this.hostId && this.debugOptions && this.game) {
+          const debugInfo: { allPlayerRoles?: Record<string, RoleName>; centerCards?: RoleName[] } = {};
+
+          if (this.debugOptions.revealAllRoles) {
+            // Get all player starting roles and map to room IDs
+            const startingRoles = this.game.getStartingRoles();
+            const allRoles: Record<string, RoleName> = {};
+            for (const [gameId, role] of startingRoles) {
+              const roomId = this.gameToRoomPlayerMap.get(gameId);
+              if (roomId) {
+                allRoles[roomId] = role;
+              }
+            }
+            debugInfo.allPlayerRoles = allRoles;
+          }
+
+          if (this.debugOptions.showCenterCards) {
+            debugInfo.centerCards = this.game.getCenterCards();
+          }
+
+          if (Object.keys(debugInfo).length > 0) {
+            view = { ...view, debugInfo };
+          }
+        }
 
         // Build game-to-room ID mapping for client
         const playerIdMapping: Record<string, string> = {};
@@ -810,7 +857,7 @@ export class Room {
 
     // Determine forced vote target for bots if debug option is enabled
     let forcedVoteTarget: string | undefined;
-    if (this.debugOptions?.forceBotsVoteForHost) {
+    if (this.debugOptions?.forceHostElimination) {
       // Get the host's game player ID
       forcedVoteTarget = this.roomToGamePlayerMap.get(this.hostId);
       if (forcedVoteTarget) {
@@ -827,8 +874,9 @@ export class Room {
           agents.set(gamePlayerId, new RandomAgent(gamePlayerId, forcedVoteTarget));
         } else {
           // Human player - use NetworkAgent
-          console.log(`Creating NetworkAgent for human player ${gamePlayerId} (room: ${roomPlayer.id})`);
-          agents.set(gamePlayerId, new NetworkAgent(gamePlayerId, roomPlayer.connection));
+          const disableTimeouts = this.debugOptions?.disableTimers ?? false;
+          console.log(`Creating NetworkAgent for human player ${gamePlayerId} (room: ${roomPlayer.id})${disableTimeouts ? ' [timeouts disabled]' : ''}`);
+          agents.set(gamePlayerId, new NetworkAgent(gamePlayerId, roomPlayer.connection, disableTimeouts));
         }
       }
     }
@@ -1234,6 +1282,14 @@ export class Room {
 
           return description;
         }
+
+        // Handle Doppel-Insomniac end-of-night wake (no copied info, just viewed)
+        const viewed = info.viewed as Array<{ playerId?: string; role: string }> | undefined;
+        if (viewed && viewed.length > 0 && viewed[0].playerId) {
+          const finalRole = viewed[0].role;
+          return `Woke as Doppel-Insomniac and saw final card: ${finalRole}`;
+        }
+
         return 'Copied another player\'s role';
       }
 
@@ -2015,18 +2071,19 @@ export class Room {
     details: Record<string, unknown>
   ): Array<{ targetType: 'player' | 'center' | 'self'; targetPlayerId?: string; targetCenterPosition?: number; targetOrder: number }> {
     const targets: Array<{ targetType: 'player' | 'center' | 'self'; targetPlayerId?: string; targetCenterPosition?: number; targetOrder: number }> = [];
+    let orderCounter = 0;
 
     const viewed = details.viewed as Array<{ playerId?: string; centerIndex?: number }> | undefined;
     if (viewed) {
-      viewed.forEach((v, i) => {
+      viewed.forEach((v) => {
         if (v.playerId) {
           const roomId = this.gameToRoomPlayerMap.get(v.playerId);
           const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
           if (dbId) {
-            targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: i });
+            targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: orderCounter++ });
           }
         } else if (v.centerIndex !== undefined) {
-          targets.push({ targetType: 'center', targetCenterPosition: v.centerIndex, targetOrder: i });
+          targets.push({ targetType: 'center', targetCenterPosition: v.centerIndex, targetOrder: orderCounter++ });
         }
       });
     }
@@ -2037,14 +2094,14 @@ export class Room {
         const roomId = this.gameToRoomPlayerMap.get(swapped.from.playerId);
         const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
         if (dbId) {
-          targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: 0 });
+          targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: orderCounter++ });
         }
       }
       if (swapped.to.playerId) {
         const roomId = this.gameToRoomPlayerMap.get(swapped.to.playerId);
         const dbId = roomId ? this.dbPlayerIds.get(roomId) : undefined;
         if (dbId) {
-          targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: 1 });
+          targets.push({ targetType: 'player', targetPlayerId: dbId, targetOrder: orderCounter++ });
         }
       }
     }

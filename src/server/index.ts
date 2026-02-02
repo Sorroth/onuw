@@ -72,6 +72,19 @@ export {
   PREDEFINED_STRATEGIES
 } from './TimeoutStrategies';
 
+// Debug options factory
+export {
+  DebugOptionsFactory,
+  DebugPreset
+} from './DebugOptionsFactory';
+
+// Admin authorization service
+export {
+  AdminAuthorizationService,
+  AuthorizationResult,
+  AdminOperation
+} from './AdminAuthorizationService';
+
 // Game server facade
 export {
   GameServerFacade,
