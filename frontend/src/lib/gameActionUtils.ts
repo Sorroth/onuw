@@ -59,8 +59,10 @@ export function getActionContext(
   if (!request) return null;
 
   // Check if this is a Doppelganger follow-up action
+  // Use the LAST matching result (backend sends partial first, then complete with all info)
   const isDoppelganger = startingRole === RoleName.DOPPELGANGER;
-  const copyResult = nightInfo.find(result => result.roleName === RoleName.DOPPELGANGER && result.info.copied);
+  const doppelResults = nightInfo.filter(result => result.roleName === RoleName.DOPPELGANGER && result.info.copied);
+  const copyResult = doppelResults.length > 0 ? doppelResults[doppelResults.length - 1] : null;
   const copiedRole = copyResult?.info.copied?.role;
 
   // For Doppelganger with a copied role doing follow-up action
@@ -68,7 +70,7 @@ export function getActionContext(
     const copiedMeta = ROLE_METADATA[copiedRole];
     const reason = getRequestReason(request);
     return {
-      title: `Acting as ${copiedMeta.displayName}`,
+      title: `As ${copiedMeta.displayName}`,
       description: reason || copiedMeta.nightActionDescription || 'Perform your copied role\'s action'
     };
   }

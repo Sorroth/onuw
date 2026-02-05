@@ -93,14 +93,15 @@ export function useOAuth(): UseOAuthReturn {
         localStorage.setItem(STORAGE_KEYS.PLAYER_NAME, session.user?.name ?? 'Player');
       }
 
-      // If WebSocket is connected, send authenticate message
+      // If WebSocket is connected, update credentials and re-authenticate
+      // This ensures admin status is properly registered on the server
       if (ws) {
-        ws.send({
-          type: 'authenticate',
-          playerId: session.backendUserId,
-          playerName: session.user?.name ?? 'Player',
-          token: session.backendToken
-        });
+        ws.updateCredentials(
+          session.backendUserId,
+          session.user?.name ?? 'Player',
+          session.backendToken
+        );
+        ws.reauthenticate();
       }
     }
   }, [session, status, setAuthToken, setPlayerInfo, ws]);

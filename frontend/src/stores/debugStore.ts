@@ -21,6 +21,8 @@ interface DebugStore {
   debugForceHostElimination: boolean;
   debugShowCenterCards: boolean;
   debugDisableTimers: boolean;
+  debugShowPositionLines: boolean;  // Frontend-only: show positioning measurement lines
+  debugForceWerewolvesToCenter: boolean;  // Place both werewolves in center cards
 
   // Actions
   setDebugMode: (enabled: boolean) => void;
@@ -29,6 +31,8 @@ interface DebugStore {
   setDebugForceHostElimination: (enabled: boolean) => void;
   setDebugShowCenterCards: (enabled: boolean) => void;
   setDebugDisableTimers: (enabled: boolean) => void;
+  setDebugShowPositionLines: (enabled: boolean) => void;
+  setDebugForceWerewolvesToCenter: (enabled: boolean) => void;
   resetDebugState: () => void;
 
   // Helper to get debug options for startGame message
@@ -41,6 +45,7 @@ export interface DebugOptions {
   forceHostElimination?: boolean;
   showCenterCards?: boolean;
   disableTimers?: boolean;
+  forceWerewolvesToCenter?: boolean;
 }
 
 const initialDebugState = {
@@ -50,6 +55,8 @@ const initialDebugState = {
   debugForceHostElimination: false,
   debugShowCenterCards: false,
   debugDisableTimers: false,
+  debugShowPositionLines: false,
+  debugForceWerewolvesToCenter: false,
 };
 
 export const useDebugStore = create<DebugStore>((set, get) => ({
@@ -67,6 +74,10 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
 
   setDebugDisableTimers: (enabled) => set({ debugDisableTimers: enabled }),
 
+  setDebugShowPositionLines: (enabled) => set({ debugShowPositionLines: enabled }),
+
+  setDebugForceWerewolvesToCenter: (enabled) => set({ debugForceWerewolvesToCenter: enabled }),
+
   resetDebugState: () => set(initialDebugState),
 
   getDebugOptions: () => {
@@ -76,7 +87,8 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
       debugRevealAllRoles,
       debugForceHostElimination,
       debugShowCenterCards,
-      debugDisableTimers
+      debugDisableTimers,
+      debugForceWerewolvesToCenter
     } = get();
 
     if (!debugMode) return null;
@@ -87,6 +99,7 @@ export const useDebugStore = create<DebugStore>((set, get) => ({
     if (debugForceHostElimination) options.forceHostElimination = true;
     if (debugShowCenterCards) options.showCenterCards = true;
     if (debugDisableTimers) options.disableTimers = true;
+    if (debugForceWerewolvesToCenter) options.forceWerewolvesToCenter = true;
 
     return Object.keys(options).length > 0 ? options : null;
   }

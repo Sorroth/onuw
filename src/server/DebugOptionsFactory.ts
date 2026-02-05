@@ -71,6 +71,7 @@ export class DebugOptionsFactory {
       revealAllRoles: options.revealAllRoles ?? false,
       showCenterCards: options.showCenterCards ?? false,
       disableTimers: options.disableTimers ?? false,
+      forceWerewolvesToCenter: options.forceWerewolvesToCenter ?? false,
     };
   }
 
@@ -97,6 +98,7 @@ export class DebugOptionsFactory {
       revealAllRoles: false,
       showCenterCards: false,
       disableTimers: false,
+      forceWerewolvesToCenter: false,
     };
   }
 
@@ -121,6 +123,7 @@ export class DebugOptionsFactory {
       revealAllRoles: true,
       showCenterCards: false,
       disableTimers: false,
+      forceWerewolvesToCenter: false,
     };
   }
 
@@ -147,6 +150,7 @@ export class DebugOptionsFactory {
       revealAllRoles: false,
       showCenterCards: true,
       disableTimers: false,
+      forceWerewolvesToCenter: false,
     };
   }
 
@@ -172,6 +176,7 @@ export class DebugOptionsFactory {
       revealAllRoles: true,
       showCenterCards: true,
       disableTimers: true,
+      forceWerewolvesToCenter: false,
     };
   }
 
@@ -264,6 +269,9 @@ export class DebugOptionsFactory {
       return false;
     }
     if (opt.disableTimers !== undefined && typeof opt.disableTimers !== 'boolean') {
+      return false;
+    }
+    if (opt.forceWerewolvesToCenter !== undefined && typeof opt.forceWerewolvesToCenter !== 'boolean') {
       return false;
     }
 

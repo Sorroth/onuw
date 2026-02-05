@@ -12,9 +12,10 @@
  * @pattern Observer Pattern - Subscribes to game store for player mapping
  */
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { PublicPlayerInfo, RoleName, ROLE_METADATA, PlayerStatement, Team, TEAM_BG_COLORS } from '@/types/game';
 import { useGameStore } from '@/stores/gameStore';
+import { useDebugStore } from '@/stores/debugStore';
 import { cn } from '@/lib/utils';
 import { createPlayerNameResolver } from '@/lib/playerUtils';
 import { CenterCardsDisplay } from './CenterCardsDisplay';
@@ -162,17 +163,103 @@ export function PlayerCircle({
   winnerIds
 }: PlayerCircleProps) {
   const { gameView, roomState, playerIdMapping } = useGameStore();
+  const { debugShowPositionLines } = useDebugStore();
   const getPlayerName = createPlayerNameResolver(playerIdMapping, roomState);
   const myPlayerId = gameView?.myPlayerId;
   const [expandedVoteBadge, setExpandedVoteBadge] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Center cards vertical offset for visual balance
-  // Player names below avatars shift visual center upward, requiring compensation
+  // Vertical offset for visual balance
+  // Player names below avatars shift visual center downward, requiring compensation
   // Using percentage-based offsets so they scale with container size on different screens
-  const centerCardsOffsetPercent = -8;
-  const centerHeaderOffsetPercent = -9;  // Distance from center to header content (was 42px on 448px = ~9%)
-  const centerFooterOffsetPercent = 11;  // Distance from center to footer content (was 50px on 448px = ~11%)
+  const outerRingOffsetPercent = -9;  // Shift outer ring (dots) up
+  const playerCircleOffsetPercent = -5.7;  // Shift player circles up (relative to container)
+  const centerCardsOffsetPercent = -12.7;
+  const centerHeaderOffsetPercent = -6.6;  // Distance from center to header content
+  const centerFooterOffsetPercent = 25;  // Distance from center to footer content
+
+  // Debug measurement lines - enabled via debug store toggle
+  const DEBUG_SHOW_LINES = debugShowPositionLines;
+  const topPlayerRef = useRef<HTMLButtonElement>(null);
+  const bottomPlayerRef = useRef<HTMLButtonElement>(null);
+  const topDotRef = useRef<HTMLDivElement>(null);
+  const bottomDotRef = useRef<HTMLDivElement>(null);
+  const centerCardsRef = useRef<HTMLDivElement>(null);
+  const centerHeaderRef = useRef<HTMLDivElement>(null);
+  const centerFooterRef = useRef<HTMLDivElement>(null);
+  const [debugMeasurements, setDebugMeasurements] = useState({ red: 0, blue: 0, green: 0, yellow: 0, orange: 0, cyan: 0, pink: 0, lime: 0 });
+
+  // Calculate actual pixel measurements and line positions
+  const [debugLines, setDebugLines] = useState<{
+    red: { top: number; height: number };
+    blue: { top: number; height: number };
+    green: { top: number; height: number };
+    yellow: { top: number; height: number };
+    orange: { top: number; height: number } | null;
+    cyan: { top: number; height: number } | null;
+    pink: { top: number; height: number } | null;
+    lime: { top: number; height: number } | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!DEBUG_SHOW_LINES) return;
+    const measure = () => {
+      const container = containerRef.current?.getBoundingClientRect();
+      const topPlayer = topPlayerRef.current?.getBoundingClientRect();
+      const bottomPlayer = bottomPlayerRef.current?.getBoundingClientRect();
+      const topDot = topDotRef.current?.getBoundingClientRect();
+      const bottomDot = bottomDotRef.current?.getBoundingClientRect();
+      const centerCards = centerCardsRef.current?.getBoundingClientRect();
+      const centerHeader = centerHeaderRef.current?.getBoundingClientRect();
+      const centerFooter = centerFooterRef.current?.getBoundingClientRect();
+
+      if (container && topPlayer && bottomPlayer && topDot && bottomDot && centerCards) {
+        const redHeight = centerCards.top - topPlayer.bottom;
+        const blueHeight = bottomPlayer.top - centerCards.bottom;
+        const greenHeight = topPlayer.top - topDot.bottom;
+        const yellowHeight = bottomDot.top - bottomPlayer.bottom;
+
+        // Header button measurements (if present)
+        const orangeHeight = centerHeader ? centerHeader.top - topPlayer.bottom : 0;
+        const cyanHeight = centerHeader ? centerCards.top - centerHeader.bottom : 0;
+
+        // Footer button measurements (if present)
+        const pinkHeight = centerFooter ? centerFooter.top - centerCards.bottom : 0;
+        const limeHeight = centerFooter ? bottomPlayer.top - centerFooter.bottom : 0;
+
+        setDebugMeasurements({
+          red: Math.round(redHeight),
+          blue: Math.round(blueHeight),
+          green: Math.round(greenHeight),
+          yellow: Math.round(yellowHeight),
+          orange: centerHeader ? Math.round(orangeHeight) : 0,
+          cyan: centerHeader ? Math.round(cyanHeight) : 0,
+          pink: centerFooter ? Math.round(pinkHeight) : 0,
+          lime: centerFooter ? Math.round(limeHeight) : 0,
+        });
+
+        setDebugLines({
+          red: { top: topPlayer.bottom - container.top, height: redHeight },
+          blue: { top: centerCards.bottom - container.top, height: blueHeight },
+          green: { top: topDot.bottom - container.top, height: greenHeight },
+          yellow: { top: bottomPlayer.bottom - container.top, height: yellowHeight },
+          orange: centerHeader ? { top: topPlayer.bottom - container.top, height: orangeHeight } : null,
+          cyan: centerHeader ? { top: centerHeader.bottom - container.top, height: cyanHeight } : null,
+          pink: centerFooter ? { top: centerCards.bottom - container.top, height: pinkHeight } : null,
+          lime: centerFooter ? { top: centerFooter.bottom - container.top, height: limeHeight } : null,
+        });
+      }
+    };
+    // Initial measure after a short delay to ensure refs are attached
+    const initialTimeout = setTimeout(measure, 100);
+    const interval = setInterval(measure, 500); // Update periodically
+    window.addEventListener('resize', measure);
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+      window.removeEventListener('resize', measure);
+    };
+  }, [players.length, DEBUG_SHOW_LINES, !!centerHeaderContent, !!centerFooterContent]);
 
   // Calculate positions for circular layout
   const getPosition = (index: number, total: number) => {
@@ -200,7 +287,7 @@ export function PlayerCircle({
         className="absolute border border-dashed border-gray-700/50 rounded-full pointer-events-none"
         style={{
           left: '50%',
-          top: '50%',
+          top: `calc(50% + ${outerRingOffsetPercent}%)`,
           width: `${CIRCLE_LAYOUT.OUTER_RADIUS_PERCENT * 2}%`,
           height: `${CIRCLE_LAYOUT.OUTER_RADIUS_PERCENT * 2}%`,
           transform: 'translate(-50%, -50%)'
@@ -213,7 +300,7 @@ export function PlayerCircle({
           className="absolute transform -translate-x-1/2 -translate-y-1/2 z-40"
           style={{
             left: '50%',
-            top: `${CIRCLE_LAYOUT.CENTER_PERCENT - CIRCLE_LAYOUT.OUTER_RADIUS_PERCENT}%`
+            top: `calc(${CIRCLE_LAYOUT.CENTER_PERCENT - CIRCLE_LAYOUT.OUTER_RADIUS_PERCENT}% + ${outerRingOffsetPercent}%)`
           }}
         >
           {headerContent}
@@ -223,34 +310,39 @@ export function PlayerCircle({
       {/* Dots on outer circle for each player position */}
       {players.map((player, index) => {
         const outerPos = getOuterPosition(index, players.length);
+        const isTopDot = index === 0;
+        const isBottomDot = index === Math.floor(players.length / 2);
         return (
           <div
             key={`outer-dot-${player.id}`}
+            ref={isTopDot ? topDotRef : isBottomDot ? bottomDotRef : undefined}
             className="absolute w-2 h-2 bg-gray-600 rounded-full pointer-events-none transform -translate-x-1/2 -translate-y-1/2"
             style={{
               left: `${outerPos.x}%`,
-              top: `${outerPos.y}%`
+              top: `calc(${outerPos.y}% + ${outerRingOffsetPercent}%)`
             }}
           />
         );
       })}
 
       {/* Center area - cards or placeholder (shifted up slightly for visual balance) */}
-      <div className="absolute inset-0 flex items-center justify-center" style={{ marginTop: `${centerCardsOffsetPercent}%` }}>
+      <div className="absolute inset-0 flex items-center justify-center" style={{ marginTop: `calc(${centerCardsOffsetPercent}% + ${playerCircleOffsetPercent}%)` }}>
         {showCenterCards ? (
-          <CenterCardsDisplay
-            cards={centerCards}
-            selectedIndices={selectedCenterIndices}
-            onCardClick={onCenterCardClick}
-            interactive={centerCardsInteractive}
-            size="md"
-            inlineConfirmMode={nightInlineConfirm}
-            expectedCount={centerCardExpectedCount}
-            onConfirm={onNightConfirm}
-            onCancel={onNightCancel}
-          />
+          <div ref={centerCardsRef}>
+            <CenterCardsDisplay
+              cards={centerCards}
+              selectedIndices={selectedCenterIndices}
+              onCardClick={onCenterCardClick}
+              interactive={centerCardsInteractive}
+              size="md"
+              inlineConfirmMode={nightInlineConfirm}
+              expectedCount={centerCardExpectedCount}
+              onConfirm={onNightConfirm}
+              onCancel={onNightCancel}
+            />
+          </div>
         ) : (
-          <div className="w-20 h-20 rounded-full bg-gray-800 border-2 border-gray-600 flex items-center justify-center">
+          <div ref={centerCardsRef} className="w-20 h-20 rounded-full bg-gray-800 border-2 border-gray-600 flex items-center justify-center">
             <span className="text-gray-400 text-sm">Center</span>
           </div>
         )}
@@ -259,8 +351,9 @@ export function PlayerCircle({
       {/* Content above center cards (positioned absolutely so it doesn't shift cards) */}
       {centerHeaderContent && (
         <div
+          ref={centerHeaderRef}
           className="absolute left-1/2 transform -translate-x-1/2 -translate-y-full z-30"
-          style={{ top: `calc(50% + ${centerCardsOffsetPercent}% + ${centerHeaderOffsetPercent}%)` }}
+          style={{ top: `calc(50% + ${playerCircleOffsetPercent}% + ${centerCardsOffsetPercent}% + ${centerHeaderOffsetPercent}%)` }}
         >
           {centerHeaderContent}
         </div>
@@ -269,8 +362,9 @@ export function PlayerCircle({
       {/* Content below center cards (positioned absolutely so it doesn't shift cards) */}
       {centerFooterContent && (
         <div
+          ref={centerFooterRef}
           className="absolute left-1/2 transform -translate-x-1/2 z-30"
-          style={{ top: `calc(50% + ${centerCardsOffsetPercent}% + ${centerFooterOffsetPercent}%)` }}
+          style={{ top: `calc(50% + ${playerCircleOffsetPercent}% + ${centerCardsOffsetPercent}% + ${centerFooterOffsetPercent}%)` }}
         >
           {centerFooterContent}
         </div>
@@ -302,13 +396,17 @@ export function PlayerCircle({
         const isWinner = winnerIds?.includes(player.id) ?? false;
         const playerTeam = revealedRole ? ROLE_METADATA[revealedRole].team : null;
 
+        // Debug refs for top and bottom players
+        const isTopPlayer = index === 0;
+        const isBottomPlayer = index === Math.floor(players.length / 2);
+
         return (
           <div
             key={player.id}
             className="absolute transform -translate-x-1/2 -translate-y-1/2"
             style={{
               left: `${pos.x}%`,
-              top: `${pos.y}%`
+              top: `calc(${pos.y}% + ${playerCircleOffsetPercent}%)`
             }}
           >
             {/* Player circle - clickable area */}
@@ -329,6 +427,7 @@ export function PlayerCircle({
                 />
               )}
               <button
+                ref={isTopPlayer ? topPlayerRef : isBottomPlayer ? bottomPlayerRef : undefined}
                 onClick={() => {
                   if (!isClickable) return;
                   const outerPos = getOuterPosition(index, players.length);
@@ -500,7 +599,7 @@ export function PlayerCircle({
             className="absolute transform -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
             style={{
               left: `${outerPos.x}%`,
-              top: `${outerPos.y}%`
+              top: `calc(${outerPos.y}% + ${outerRingOffsetPercent}%)`
             }}
           >
             <SpeechBubble
@@ -523,13 +622,184 @@ export function PlayerCircle({
             className="absolute transform -translate-x-1/2 -translate-y-1/2 z-50"
             style={{
               left: `${outerPos.x}%`,
-              top: `${outerPos.y}%`
+              top: `calc(${outerPos.y}% + ${outerRingOffsetPercent}%)`
             }}
           >
             {popupContent(outerPos)}
           </div>
         );
       })()}
+
+      {/* DEBUG: Measurement display and lines */}
+      {DEBUG_SHOW_LINES && (
+        <>
+          {/* Info panel - positioned outside the circle area */}
+          <div className="absolute -bottom-36 left-0 z-50 bg-black/90 text-white text-xs p-2 rounded space-y-0.5 font-mono">
+            <div className="text-red-400">RED (top player→cards): {debugMeasurements.red}px</div>
+            <div className="text-blue-400">BLUE (cards→bottom player): {debugMeasurements.blue}px</div>
+            <div className="text-green-400">GREEN (top dot→top player): {debugMeasurements.green}px</div>
+            <div className="text-yellow-400">YELLOW (bottom player→bottom dot): {debugMeasurements.yellow}px</div>
+            {centerHeaderContent && (
+              <>
+                <div className="text-orange-400">ORANGE (top player→header btn): {debugMeasurements.orange}px</div>
+                <div className="text-cyan-400">CYAN (header btn→cards): {debugMeasurements.cyan}px</div>
+              </>
+            )}
+            {centerFooterContent && (
+              <>
+                <div className="text-pink-400">PINK (cards→footer btn): {debugMeasurements.pink}px</div>
+                <div className="text-lime-400">LIME (footer btn→bottom player): {debugMeasurements.lime}px</div>
+              </>
+            )}
+            <div className="border-t border-gray-600 pt-0.5 mt-0.5 text-white">
+              Cards diff: {debugMeasurements.red - debugMeasurements.blue}px | Ring diff: {debugMeasurements.green - debugMeasurements.yellow}px
+              {centerHeaderContent && <> | Header diff: {debugMeasurements.orange - debugMeasurements.cyan}px</>}
+              {centerFooterContent && <> | Footer diff: {debugMeasurements.pink - debugMeasurements.lime}px</>}
+            </div>
+          </div>
+
+          {/* Visual lines */}
+          {debugLines && (
+            <>
+              {/* RED: top player → cards */}
+              <div
+                className="absolute z-50 pointer-events-none flex items-center"
+                style={{
+                  left: 'calc(50% - 2px)',
+                  top: debugLines.red.top,
+                  height: Math.max(0, debugLines.red.height),
+                  width: '4px',
+                  backgroundColor: 'red',
+                }}
+              >
+                <span className="absolute left-2 text-red-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                  {debugMeasurements.red}px
+                </span>
+              </div>
+
+              {/* BLUE: cards → bottom player */}
+              <div
+                className="absolute z-50 pointer-events-none flex items-center"
+                style={{
+                  left: 'calc(50% - 2px)',
+                  top: debugLines.blue.top,
+                  height: Math.max(0, debugLines.blue.height),
+                  width: '4px',
+                  backgroundColor: 'blue',
+                }}
+              >
+                <span className="absolute left-2 text-blue-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                  {debugMeasurements.blue}px
+                </span>
+              </div>
+
+              {/* GREEN: top dot → top player */}
+              <div
+                className="absolute z-50 pointer-events-none flex items-center"
+                style={{
+                  left: 'calc(50% - 2px)',
+                  top: debugLines.green.top,
+                  height: Math.max(0, debugLines.green.height),
+                  width: '4px',
+                  backgroundColor: 'green',
+                }}
+              >
+                <span className="absolute left-2 text-green-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                  {debugMeasurements.green}px
+                </span>
+              </div>
+
+              {/* YELLOW: bottom player → bottom dot */}
+              <div
+                className="absolute z-50 pointer-events-none flex items-center"
+                style={{
+                  left: 'calc(50% - 2px)',
+                  top: debugLines.yellow.top,
+                  height: Math.max(0, debugLines.yellow.height),
+                  width: '4px',
+                  backgroundColor: 'yellow',
+                }}
+              >
+                <span className="absolute right-2 text-yellow-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                  {debugMeasurements.yellow}px
+                </span>
+              </div>
+
+              {/* ORANGE: top player → header button (left side) */}
+              {debugLines.orange && (
+                <div
+                  className="absolute z-50 pointer-events-none flex items-center"
+                  style={{
+                    left: 'calc(50% - 2px)',
+                    top: debugLines.orange.top,
+                    height: Math.max(0, debugLines.orange.height),
+                    width: '4px',
+                    backgroundColor: 'orange',
+                  }}
+                >
+                  <span className="absolute right-2 text-orange-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                    {debugMeasurements.orange}px
+                  </span>
+                </div>
+              )}
+
+              {/* CYAN: header button → cards (left side) */}
+              {debugLines.cyan && (
+                <div
+                  className="absolute z-50 pointer-events-none flex items-center"
+                  style={{
+                    left: 'calc(50% - 16px)',
+                    top: debugLines.cyan.top,
+                    height: Math.max(0, debugLines.cyan.height),
+                    width: '4px',
+                    backgroundColor: 'cyan',
+                  }}
+                >
+                  <span className="absolute right-2 text-cyan-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                    {debugMeasurements.cyan}px
+                  </span>
+                </div>
+              )}
+
+              {/* PINK: cards → footer button (right side) */}
+              {debugLines.pink && (
+                <div
+                  className="absolute z-50 pointer-events-none flex items-center"
+                  style={{
+                    left: 'calc(50% + 10px)',
+                    top: debugLines.pink.top,
+                    height: Math.max(0, debugLines.pink.height),
+                    width: '4px',
+                    backgroundColor: 'hotpink',
+                  }}
+                >
+                  <span className="absolute left-2 text-pink-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                    {debugMeasurements.pink}px
+                  </span>
+                </div>
+              )}
+
+              {/* LIME: footer button → bottom player (right side) */}
+              {debugLines.lime && (
+                <div
+                  className="absolute z-50 pointer-events-none flex items-center"
+                  style={{
+                    left: 'calc(50% - 2px)',
+                    top: debugLines.lime.top,
+                    height: Math.max(0, debugLines.lime.height),
+                    width: '4px',
+                    backgroundColor: 'lime',
+                  }}
+                >
+                  <span className="absolute left-2 text-lime-500 text-xs font-bold whitespace-nowrap bg-black/70 px-1 rounded">
+                    {debugMeasurements.lime}px
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

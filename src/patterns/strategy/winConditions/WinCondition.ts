@@ -59,6 +59,9 @@ export interface PlayerWinInfo {
 
   /** Whether this player was eliminated */
   readonly isEliminated: boolean;
+
+  /** The role this player copied (if Doppelganger) */
+  readonly copiedRole?: RoleName;
 }
 
 /**

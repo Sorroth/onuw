@@ -565,6 +565,8 @@ export interface DebugOptions {
   readonly showCenterCards?: boolean;
   /** Disable all game timeouts (timers display but don't expire) */
   readonly disableTimers?: boolean;
+  /** Force both werewolves to be placed in center cards (for Minion testing) */
+  readonly forceWerewolvesToCenter?: boolean;
 }
 
 /**

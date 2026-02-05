@@ -767,7 +767,8 @@ export class Room {
     const gameConfig: GameConfig = {
       players: playerList.map(p => p.name),
       roles: [...this.config.roles],
-      forcedRoles
+      forcedRoles,
+      forceWerewolvesToCenter: this.debugOptions?.forceWerewolvesToCenter
     };
 
     // Create and setup game
@@ -1838,6 +1839,12 @@ export class Room {
         if (dbPlayerId) {
           await this.gameRepository.updateFinalRole(dbPlayerId, role);
         }
+      }
+
+      // Update center card final roles
+      const finalCenterCards = this.game.getCenterCards();
+      for (let i = 0; i < finalCenterCards.length; i++) {
+        await this.gameRepository.updateCenterCardRole(this.dbGameId, i, finalCenterCards[i]);
       }
 
       // Build player results for statistics

@@ -76,7 +76,7 @@ export function CenterCardsDisplay({
   const showInlineUI = inlineConfirmMode && selectedCount > 0;
 
   return (
-    <div className={cn('flex flex-col items-center', className)}>
+    <div className={cn('relative flex flex-col items-center', className)}>
       {/* Cards row */}
       <div className="flex items-center justify-center gap-1">
         {[0, 1, 2].map((index) => {
@@ -137,9 +137,9 @@ export function CenterCardsDisplay({
         })}
       </div>
 
-      {/* Center card selection status and confirm/cancel */}
+      {/* Center card selection status and confirm/cancel - absolute so it doesn't shift cards */}
       {showInlineUI && (
-        <div className="mt-2 flex items-center gap-2">
+        <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex items-center gap-2">
           <span className={cn(
             'text-xs',
             selectionComplete ? 'text-purple-300' : 'text-gray-400'
@@ -150,13 +150,13 @@ export function CenterCardsDisplay({
             <>
               <button
                 onClick={onCancel}
-                className="w-6 h-6 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-md transition-colors"
+                className="w-6 h-6 flex-shrink-0 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-md transition-colors"
               >
                 <span className="text-xs font-bold">✕</span>
               </button>
               <button
                 onClick={onConfirm}
-                className="w-6 h-6 rounded-full bg-green-600 hover:bg-green-500 text-white flex items-center justify-center shadow-md transition-colors"
+                className="w-6 h-6 flex-shrink-0 rounded-full bg-green-600 hover:bg-green-500 text-white flex items-center justify-center shadow-md transition-colors"
               >
                 <span className="text-xs font-bold">✓</span>
               </button>

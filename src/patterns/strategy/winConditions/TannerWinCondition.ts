@@ -126,10 +126,14 @@ export class TannerWinCondition extends AbstractWinCondition {
    * ```
    */
   evaluate(context: WinConditionContext): WinConditionResult {
-    // Find the Tanner player(s)
-    const tannerPlayers = context.allPlayers.filter(
-      p => p.currentRole === RoleName.TANNER
-    );
+    // Helper to check if player is effectively a Tanner (actual or Doppelganger-Tanner)
+    // Doppelganger only counts if they still have their Doppelganger card (wasn't swapped)
+    const isTanner = (p: { currentRole: RoleName; copiedRole?: RoleName }) =>
+      p.currentRole === RoleName.TANNER ||
+      (p.currentRole === RoleName.DOPPELGANGER && p.copiedRole === RoleName.TANNER);
+
+    // Find the Tanner player(s) - includes Doppelganger who copied Tanner
+    const tannerPlayers = context.allPlayers.filter(isTanner);
 
     // If no Tanner in the game, this condition doesn't apply
     if (tannerPlayers.length === 0) {

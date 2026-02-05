@@ -407,6 +407,15 @@ export class GameServerFacade {
       return;
     }
 
+    // Check if this connection already has an active session (re-authentication)
+    const existingPlayerId = this.connectionToSession.get(connection.id);
+    const existingSession = existingPlayerId ? this.sessions.get(existingPlayerId) : null;
+    const isReauthentication = existingSession !== null && existingSession !== undefined;
+
+    if (isReauthentication) {
+      console.log(`WebSocket auth: Re-authentication for ${playerName} (preserving session state)`);
+    }
+
     // If a JWT token is provided, validate it and link to database user
     let userId: string | undefined;
     let isAdmin = false;
@@ -435,12 +444,13 @@ export class GameServerFacade {
       console.log(`WebSocket auth: No token provided for ${playerName}`);
     }
 
-    // Create new session
+    // Create or update session
+    // If re-authenticating, preserve the room association
     const session: PlayerSession = {
       playerId,
       playerName,
       connection,
-      roomCode: null,
+      roomCode: isReauthentication ? existingSession!.roomCode : null,
       authenticatedAt: Date.now(),
       userId
     };

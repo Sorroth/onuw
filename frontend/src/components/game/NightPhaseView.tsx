@@ -64,7 +64,7 @@ export function NightPhaseView() {
         pendingSeerTarget.current = null;
         return;
       }
-      if (actionType === 'selectCenter' && pendingSeerTarget.current.type === 'center' && pendingSeerTarget.current.centerCards) {
+      if ((actionType === 'selectCenter' || actionType === 'selectTwoCenter') && pendingSeerTarget.current.type === 'center' && pendingSeerTarget.current.centerCards) {
         // Auto-send the pre-selected center cards
         sendActionResponse(pendingActionRequest!.requestId, pendingSeerTarget.current.centerCards);
         pendingSeerTarget.current = null;

@@ -54,14 +54,47 @@ export function GameSidebar({
   const getPlayerName = createPlayerNameResolver(playerIdMapping, roomState);
   const roleMetadata = ROLE_METADATA[gameView.myStartingRole];
   const hasFinalRoleChange = showFinalRole && finalRole && finalRole !== gameView.myStartingRole;
+  const shouldShowFinalRole = showFinalRole && finalRole;
   const isNightPhase = gameView.phase === GamePhase.NIGHT;
   const hasAllNightActions = allNightActions && allNightActions.length > 0;
 
   // Get copied role for Doppelganger display
-  const copiedRoleInfo = gameView.myStartingRole === RoleName.DOPPELGANGER
-    ? gameView.myNightInfo.find(result => result.roleName === RoleName.DOPPELGANGER && result.info.copied)?.info.copied
-    : null;
+  // Use the LAST matching result (backend sends partial first, then complete with all info)
+  const doppelResults = gameView.myStartingRole === RoleName.DOPPELGANGER
+    ? gameView.myNightInfo.filter(result => result.roleName === RoleName.DOPPELGANGER && result.info.copied)
+    : [];
+  const copiedRoleInfo = doppelResults.length > 0 ? doppelResults[doppelResults.length - 1].info.copied : null;
   const copiedRole = copiedRoleInfo?.role;
+
+  // Check if Robber (or Doppelganger-Robber) has stolen a role
+  // The Robber sees their new card after stealing - they only view one card (their own new card)
+  // NOTE: For Doppelganger-Robber, the results are under roleName: DOPPELGANGER, not ROBBER
+  const isRobber = gameView.myStartingRole === RoleName.ROBBER || copiedRole === RoleName.ROBBER;
+
+  // Get the viewed info based on whether it's a regular Robber or Doppelganger-Robber
+  const robberViewedInfo = (() => {
+    if (copiedRole === RoleName.ROBBER) {
+      // Doppelganger-Robber: viewed info is in the Doppelganger result
+      const doppelWithViewed = doppelResults.find(r =>
+        Array.isArray(r.info.viewed) && r.info.viewed.length > 0
+      );
+      return doppelWithViewed?.info.viewed ?? null;
+    } else if (gameView.myStartingRole === RoleName.ROBBER) {
+      // Regular Robber: viewed info is in the Robber result
+      const robberResult = gameView.myNightInfo.find(r =>
+        r.roleName === RoleName.ROBBER &&
+        Array.isArray(r.info.viewed) &&
+        r.info.viewed.length > 0
+      );
+      return robberResult?.info.viewed ?? null;
+    }
+    return null;
+  })();
+
+  // Robber views exactly one card - their own new card after stealing
+  const stolenRole = robberViewedInfo && robberViewedInfo.length > 0
+    ? robberViewedInfo[0].role
+    : undefined;
 
   // Get contextual action info for Doppelganger and other multi-step actions
   const actionContext = getActionContext(
@@ -164,39 +197,70 @@ export function GameSidebar({
         </div>
       ) : (
         <>
-          {/* Your Starting Role */}
+          {/* Your Starting Role - or stolen role if Robber has acted */}
           <div>
             <h3 className="text-xs text-gray-400 mb-2 uppercase tracking-wide">
-              {copiedRole ? 'Your Role (Copied)' : 'Your Role'}
+              {stolenRole ? 'Your Role (Stolen)' : copiedRole ? 'Your Role (Copied)' : 'Your Role'}
             </h3>
-            <RoleCard
-              role={gameView.myStartingRole}
-              size="sm"
-              copiedRole={copiedRole}
-            />
+            {stolenRole ? (
+              // Robber has stolen - show the stolen role
+              <RoleCard
+                role={stolenRole}
+                size="sm"
+              />
+            ) : (
+              // Normal display - starting role with optional copied role
+              <RoleCard
+                role={gameView.myStartingRole}
+                size="sm"
+                copiedRole={copiedRole}
+              />
+            )}
           </div>
 
-          {/* Role description */}
-          {roleMetadata.nightActionDescription && !actionContext && (
-            <div className="text-xs text-gray-400 leading-relaxed">
-              {roleMetadata.nightActionDescription}
+          {/* Role description - always show for stolen/copied roles, only hide during active night actions */}
+          {stolenRole ? (
+            // Robber has stolen - show the stolen role's description crossed out (no action taken)
+            <div className="text-xs leading-relaxed space-y-1">
+              {ROLE_METADATA[stolenRole].nightActionDescription && (
+                <div className="text-gray-500 line-through">
+                  <span>As {ROLE_METADATA[stolenRole].displayName}:</span>{' '}
+                  {ROLE_METADATA[stolenRole].nightActionDescription}
+                </div>
+              )}
+              <div className="text-yellow-400/80 italic">
+                You take no action — the Robber only steals, not performs.
+              </div>
             </div>
+          ) : copiedRole ? (
+            // Doppelganger has copied - show the copied role's description (night action or passive ability)
+            (ROLE_METADATA[copiedRole].nightActionDescription || ROLE_METADATA[copiedRole].description) && (
+              <div className="text-xs text-gray-400 leading-relaxed">
+                <span className="text-purple-400">As {ROLE_METADATA[copiedRole].displayName}:</span>{' '}
+                {ROLE_METADATA[copiedRole].nightActionDescription || ROLE_METADATA[copiedRole].description}
+              </div>
+            )
+          ) : !actionContext && (
+            // Normal role - show own description only when no active action
+            roleMetadata.nightActionDescription && (
+              <div className="text-xs text-gray-400 leading-relaxed">
+                {roleMetadata.nightActionDescription}
+              </div>
+            )
           )}
 
           {/* Current action context (especially for Doppelganger multi-step) */}
           {isNightPhase && actionContext && (
-            <div className="pt-2 border-t border-gray-700">
-              <h3 className="text-xs text-purple-400 mb-1 uppercase tracking-wide">
-                {actionContext.title}
-              </h3>
-              <p className="text-xs text-gray-300 leading-relaxed">
-                {actionContext.description}
-              </p>
+            <div className="text-xs text-gray-400 leading-relaxed">
+              <span className="text-purple-400">{actionContext.title}:</span>{' '}
+              {actionContext.description}
             </div>
           )}
 
-          {/* Selection feedback during night actions */}
-          {isNightPhase && (selectedPlayers.length > 0 || selectedCenterCards.length > 0) && (
+          {/* Selection feedback during night actions - hide if Doppelganger (initial or copied active role) as it's shown in NightInfoPanel */}
+          {isNightPhase && (selectedPlayers.length > 0 || selectedCenterCards.length > 0) &&
+           !(gameView.myStartingRole === RoleName.DOPPELGANGER && !copiedRole) &&
+           !(copiedRole && [RoleName.SEER, RoleName.ROBBER, RoleName.TROUBLEMAKER, RoleName.DRUNK].includes(copiedRole)) && (
             <div className="pt-2 border-t border-gray-700">
               <h3 className="text-xs text-gray-400 mb-2 uppercase tracking-wide">
                 Selected
@@ -222,23 +286,35 @@ export function GameSidebar({
             </div>
           )}
 
-          {/* Final role (if changed) */}
-          {hasFinalRoleChange && (
+          {/* Night Information */}
+          {(gameView.myNightInfo.length > 0 ||
+            (gameView.myStartingRole === RoleName.DOPPELGANGER && isNightPhase && pendingActionRequest)) && (
+            <div className="pt-2 border-t border-gray-700">
+              <NightInfoPanel
+                compact
+                selectedPlayers={selectedPlayers}
+                selectedCenterCards={selectedCenterCards}
+              />
+            </div>
+          )}
+
+          {/* Final role - always shown in results, with swap message if changed */}
+          {shouldShowFinalRole && (
             <div className="pt-2 border-t border-gray-700">
               <h3 className="text-xs text-gray-400 mb-2 uppercase tracking-wide">
                 Final Role
               </h3>
-              <RoleCard role={finalRole as RoleName} size="sm" />
-              <p className="text-xs text-amber-400 mt-1">
-                Your role was swapped during the night!
-              </p>
-            </div>
-          )}
-
-          {/* Night Information */}
-          {gameView.myNightInfo.length > 0 && (
-            <div className="pt-2 border-t border-gray-700">
-              <NightInfoPanel compact />
+              {/* For Doppelganger who copied a role and wasn't swapped, show the copied role */}
+              {gameView.myStartingRole === RoleName.DOPPELGANGER && copiedRole && finalRole === RoleName.DOPPELGANGER ? (
+                <RoleCard role={RoleName.DOPPELGANGER} size="sm" copiedRole={copiedRole} />
+              ) : (
+                <RoleCard role={finalRole as RoleName} size="sm" />
+              )}
+              {hasFinalRoleChange && (
+                <p className="text-xs text-amber-400 mt-1">
+                  Your role was swapped during the night!
+                </p>
+              )}
             </div>
           )}
         </>

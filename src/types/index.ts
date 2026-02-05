@@ -232,6 +232,13 @@ export interface GameConfig {
    * @default 'standard'
    */
   readonly auditLevel?: AuditLevel;
+
+  /**
+   * Debug option: Force all werewolves to be placed in center cards.
+   * Useful for testing Minion when no werewolves are among players.
+   * Only used in debug/testing mode.
+   */
+  readonly forceWerewolvesToCenter?: boolean;
 }
 
 // ============================================================================

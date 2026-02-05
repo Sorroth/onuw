@@ -267,3 +267,499 @@ body {
   }
 }
 
+/* Seer magic swirl animations - particles travel around edges, fade over text */
+@keyframes seer-travel-1 {
+  0% {
+    top: -12px;
+    left: 10%;
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  20% {
+    top: -10px;
+    left: 85%;
+    opacity: 1;
+    transform: scale(1.2) rotate(72deg);
+  }
+  35% {
+    top: 50%;
+    left: 105%;
+    opacity: 0.8;
+    transform: scale(1) rotate(126deg);
+  }
+  50% {
+    top: 105%;
+    left: 70%;
+    opacity: 1;
+    transform: scale(0.9) rotate(180deg);
+  }
+  70% {
+    top: 105%;
+    left: 20%;
+    opacity: 1;
+    transform: scale(1.1) rotate(252deg);
+  }
+  85% {
+    top: 50%;
+    left: -10%;
+    opacity: 0.8;
+    transform: scale(1) rotate(306deg);
+  }
+  100% {
+    top: -12px;
+    left: 10%;
+    opacity: 1;
+    transform: scale(1) rotate(360deg);
+  }
+}
+
+@keyframes seer-travel-2 {
+  0% {
+    top: 105%;
+    left: 60%;
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    top: 50%;
+    left: -10%;
+    opacity: 0.8;
+    transform: scale(1.1) rotate(90deg);
+  }
+  50% {
+    top: -12px;
+    left: 30%;
+    opacity: 1;
+    transform: scale(0.9) rotate(180deg);
+  }
+  75% {
+    top: 50%;
+    left: 105%;
+    opacity: 0.8;
+    transform: scale(1.2) rotate(270deg);
+  }
+  100% {
+    top: 105%;
+    left: 60%;
+    opacity: 1;
+    transform: scale(1) rotate(360deg);
+  }
+}
+
+@keyframes seer-travel-3 {
+  0% {
+    top: 50%;
+    left: -12%;
+    opacity: 0.9;
+    transform: scale(1) rotate(0deg);
+  }
+  25% {
+    top: -12px;
+    left: 50%;
+    opacity: 1;
+    transform: scale(1.2) rotate(90deg);
+  }
+  50% {
+    top: 50%;
+    left: 105%;
+    opacity: 0.9;
+    transform: scale(1) rotate(180deg);
+  }
+  75% {
+    top: 105%;
+    left: 50%;
+    opacity: 1;
+    transform: scale(1.1) rotate(270deg);
+  }
+  100% {
+    top: 50%;
+    left: -12%;
+    opacity: 0.9;
+    transform: scale(1) rotate(360deg);
+  }
+}
+
+@keyframes seer-travel-4 {
+  0% {
+    top: -12px;
+    left: 70%;
+    opacity: 1;
+    transform: scale(1.1) rotate(0deg);
+  }
+  30% {
+    top: 105%;
+    left: 90%;
+    opacity: 1;
+    transform: scale(0.9) rotate(108deg);
+  }
+  50% {
+    top: 105%;
+    left: 10%;
+    opacity: 1;
+    transform: scale(1) rotate(180deg);
+  }
+  80% {
+    top: -12px;
+    left: 25%;
+    opacity: 1;
+    transform: scale(1.2) rotate(288deg);
+  }
+  100% {
+    top: -12px;
+    left: 70%;
+    opacity: 1;
+    transform: scale(1.1) rotate(360deg);
+  }
+}
+
+@keyframes seer-travel-5 {
+  0% {
+    top: 105%;
+    left: 5%;
+    opacity: 1;
+    transform: scale(0.9) rotate(0deg);
+  }
+  20% {
+    top: 50%;
+    left: -10%;
+    opacity: 0.8;
+    transform: scale(1.1) rotate(72deg);
+  }
+  40% {
+    top: -12px;
+    left: 20%;
+    opacity: 1;
+    transform: scale(1) rotate(144deg);
+  }
+  60% {
+    top: -12px;
+    left: 80%;
+    opacity: 1;
+    transform: scale(1.2) rotate(216deg);
+  }
+  80% {
+    top: 50%;
+    left: 105%;
+    opacity: 0.8;
+    transform: scale(1) rotate(288deg);
+  }
+  100% {
+    top: 105%;
+    left: 5%;
+    opacity: 1;
+    transform: scale(0.9) rotate(360deg);
+  }
+}
+
+@keyframes seer-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.4), 0 0 20px rgba(168, 85, 247, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(168, 85, 247, 0.6), 0 0 30px rgba(168, 85, 247, 0.3);
+  }
+}
+
+.seer-magic-box {
+  position: relative;
+  overflow: visible;
+  animation: seer-glow 2s ease-in-out infinite;
+}
+
+.seer-magic-box::before {
+  content: '✨';
+  position: absolute;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-1 10s linear infinite;
+}
+
+.seer-magic-box::after {
+  content: '⭐';
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-2 10s linear infinite -2s;
+}
+
+.seer-sparkle-1 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-3 10s linear infinite -4s;
+}
+
+.seer-sparkle-2 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 9px;
+  animation: seer-travel-4 10s linear infinite -6s;
+}
+
+.seer-sparkle-3 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 13px;
+  animation: seer-travel-5 10s linear infinite -8s;
+}
+
+/* Robber stealth animations - sneaky emojis circling the box */
+@keyframes robber-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(161, 161, 170, 0.3), 0 0 16px rgba(161, 161, 170, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.4), 0 0 24px rgba(251, 191, 36, 0.2);
+  }
+}
+
+.robber-stealth-box {
+  position: relative;
+  overflow: visible;
+  animation: robber-glow 3s ease-in-out infinite;
+}
+
+.robber-stealth-box::before {
+  content: '💰';
+  position: absolute;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-1 10s linear infinite;
+}
+
+.robber-stealth-box::after {
+  content: '💎';
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-2 10s linear infinite -2s;
+}
+
+.robber-sparkle-1 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-3 10s linear infinite -4s;
+}
+
+.robber-sparkle-2 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 10px;
+  animation: seer-travel-4 10s linear infinite -6s;
+}
+
+.robber-sparkle-3 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-5 10s linear infinite -8s;
+}
+
+/* Troublemaker chaos animations - playful emojis circling the box */
+@keyframes troublemaker-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(236, 72, 153, 0.3), 0 0 16px rgba(236, 72, 153, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(249, 115, 22, 0.4), 0 0 24px rgba(249, 115, 22, 0.2);
+  }
+}
+
+.troublemaker-chaos-box {
+  position: relative;
+  overflow: visible;
+  animation: troublemaker-glow 2s ease-in-out infinite;
+}
+
+.troublemaker-chaos-box::before {
+  content: '🎭';
+  position: absolute;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-1 10s linear infinite;
+}
+
+.troublemaker-chaos-box::after {
+  content: '🔀';
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-2 10s linear infinite -2s;
+}
+
+.troublemaker-sparkle-1 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-3 10s linear infinite -4s;
+}
+
+.troublemaker-sparkle-2 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 10px;
+  animation: seer-travel-4 10s linear infinite -6s;
+}
+
+.troublemaker-sparkle-3 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-5 10s linear infinite -8s;
+}
+
+/* Drunk tipsy animations - wobbly emojis circling the box */
+@keyframes drunk-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(217, 119, 6, 0.3), 0 0 16px rgba(217, 119, 6, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.5), 0 0 24px rgba(251, 191, 36, 0.2);
+  }
+}
+
+.drunk-tipsy-box {
+  position: relative;
+  overflow: visible;
+  animation: drunk-glow 2.5s ease-in-out infinite;
+}
+
+.drunk-tipsy-box::before {
+  content: '🍻';
+  position: absolute;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-1 10s linear infinite;
+}
+
+.drunk-tipsy-box::after {
+  content: '🍷';
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-2 10s linear infinite -2s;
+}
+
+.drunk-sparkle-1 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-3 10s linear infinite -4s;
+}
+
+.drunk-sparkle-2 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 10px;
+  animation: seer-travel-4 10s linear infinite -6s;
+}
+
+.drunk-sparkle-3 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-5 10s linear infinite -8s;
+}
+
+/* Doppelganger copy animations - mysterious emojis circling the box */
+@keyframes doppelganger-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.3), 0 0 16px rgba(168, 85, 247, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(192, 132, 252, 0.5), 0 0 24px rgba(192, 132, 252, 0.2);
+  }
+}
+
+.doppelganger-copy-box {
+  position: relative;
+  overflow: visible;
+  animation: doppelganger-glow 2s ease-in-out infinite;
+}
+
+.doppelganger-copy-box::before {
+  content: '👥';
+  position: absolute;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-1 10s linear infinite;
+}
+
+.doppelganger-copy-box::after {
+  content: '🌀';
+  position: absolute;
+  font-size: 10px;
+  pointer-events: none;
+  z-index: 10;
+  animation: seer-travel-2 10s linear infinite -2s;
+}
+
+/* Dynamic version without ::before/::after - uses HTML spans for all emojis */
+.doppelganger-copy-box-dynamic {
+  position: relative;
+  overflow: visible;
+  animation: doppelganger-glow 2s ease-in-out infinite;
+}
+
+.doppelganger-sparkle-0 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 12px;
+  animation: seer-travel-1 10s linear infinite;
+}
+
+.doppelganger-sparkle-1 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-2 10s linear infinite -2s;
+}
+
+.doppelganger-sparkle-2 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 10px;
+  animation: seer-travel-3 10s linear infinite -4s;
+}
+
+.doppelganger-sparkle-3 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 11px;
+  animation: seer-travel-4 10s linear infinite -6s;
+}
+
+.doppelganger-sparkle-4 {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  font-size: 10px;
+  animation: seer-travel-5 10s linear infinite -8s;
+}
+

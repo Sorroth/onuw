@@ -61,12 +61,16 @@ export function LobbyView({ onLeave }: LobbyViewProps) {
     debugForceHostElimination,
     debugShowCenterCards,
     debugDisableTimers,
+    debugShowPositionLines,
+    debugForceWerewolvesToCenter,
     setDebugMode,
     setDebugForceRole,
     setDebugRevealAllRoles,
     setDebugForceHostElimination,
     setDebugShowCenterCards,
-    setDebugDisableTimers
+    setDebugDisableTimers,
+    setDebugShowPositionLines,
+    setDebugForceWerewolvesToCenter
   } = useDebugStore();
 
   const [showRoleSelector, setShowRoleSelector] = useState(false);
@@ -411,8 +415,36 @@ export function LobbyView({ onLeave }: LobbyViewProps) {
                     </div>
                   </label>
 
+                  {/* Force Werewolves to Center toggle */}
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={debugForceWerewolvesToCenter}
+                      onChange={(e) => setDebugForceWerewolvesToCenter(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-500 bg-gray-700 text-yellow-500 focus:ring-yellow-500"
+                    />
+                    <div>
+                      <span className="text-gray-300">Force werewolves to center</span>
+                      <p className="text-xs text-gray-500">Place both werewolves in center cards (for Minion testing)</p>
+                    </div>
+                  </label>
+
+                  {/* Show Position Lines toggle (frontend only) */}
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={debugShowPositionLines}
+                      onChange={(e) => setDebugShowPositionLines(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-500 bg-gray-700 text-yellow-500 focus:ring-yellow-500"
+                    />
+                    <div>
+                      <span className="text-gray-300">Show position lines</span>
+                      <p className="text-xs text-gray-500">Display measurement lines for element positioning (frontend only)</p>
+                    </div>
+                  </label>
+
                   {/* Summary of active debug options */}
-                  {(debugForceRole || debugRevealAllRoles || debugShowCenterCards || debugForceHostElimination || debugDisableTimers) && (
+                  {(debugForceRole || debugRevealAllRoles || debugShowCenterCards || debugForceHostElimination || debugDisableTimers || debugShowPositionLines || debugForceWerewolvesToCenter) && (
                     <div className="mt-4 p-3 bg-yellow-900/20 rounded-lg border border-yellow-600/30">
                       <p className="text-sm text-yellow-400 font-medium mb-1">Active debug options:</p>
                       <ul className="text-xs text-yellow-400/70 space-y-1">
@@ -421,6 +453,8 @@ export function LobbyView({ onLeave }: LobbyViewProps) {
                         {debugShowCenterCards && <li>• Center cards will be visible</li>}
                         {debugForceHostElimination && <li>• You will be eliminated (bots vote for you)</li>}
                         {debugDisableTimers && <li>• All timers are paused (visible but frozen)</li>}
+                        {debugForceWerewolvesToCenter && <li>• Both werewolves placed in center</li>}
+                        {debugShowPositionLines && <li>• Position measurement lines visible</li>}
                       </ul>
                     </div>
                   )}

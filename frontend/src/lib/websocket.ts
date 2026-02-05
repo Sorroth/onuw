@@ -113,6 +113,23 @@ export class GameWebSocket {
     }
   }
 
+  /**
+   * Re-authenticate with the server using current credentials.
+   * Call this after updateCredentials when the WebSocket is already connected
+   * to refresh the server-side session with new auth info (e.g., admin status).
+   */
+  reauthenticate(): void {
+    if (this.ws?.readyState === WebSocket.OPEN && (this.options.token || this.options.playerId)) {
+      console.log('[WebSocket] Re-authenticating with updated credentials');
+      this.send({
+        type: 'authenticate',
+        token: this.options.token,
+        playerId: this.options.playerId,
+        playerName: this.options.playerName
+      });
+    }
+  }
+
   private setupEventHandlers(): void {
     if (!this.ws) return;
 

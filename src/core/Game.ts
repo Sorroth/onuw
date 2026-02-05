@@ -271,6 +271,38 @@ export class Game implements IGameContext, INightActionGameState {
     // Shuffle roles
     this.shuffleArray(roles);
 
+    // Handle forced werewolves to center for debug mode
+    if (this.config.forceWerewolvesToCenter) {
+      console.log('Debug: forceWerewolvesToCenter is enabled');
+      const playerCount = this.config.players.length;
+      const centerStartIndex = playerCount; // Center cards are at indices playerCount, playerCount+1, playerCount+2
+      console.log(`Debug: playerCount=${playerCount}, centerStartIndex=${centerStartIndex}`);
+
+      // Find all werewolf roles
+      const werewolfIndices: number[] = [];
+      for (let i = 0; i < roles.length; i++) {
+        if (roles[i].name === RoleName.WEREWOLF) {
+          werewolfIndices.push(i);
+        }
+      }
+      console.log(`Debug: Found werewolves at indices: ${werewolfIndices.join(', ')}`);
+
+      // Move werewolves to center positions (swap with whatever is there)
+      for (let i = 0; i < werewolfIndices.length && i < 3; i++) {
+        const werewolfIndex = werewolfIndices[i];
+        const centerIndex = centerStartIndex + i;
+
+        // Only swap if the werewolf isn't already in a center position
+        if (werewolfIndex < playerCount) {
+          const swappedRole = roles[centerIndex].name;
+          [roles[werewolfIndex], roles[centerIndex]] = [roles[centerIndex], roles[werewolfIndex]];
+          console.log(`Debug: Moved werewolf from position ${werewolfIndex} to center position ${i} (swapped with ${swappedRole})`);
+        } else {
+          console.log(`Debug: Werewolf at index ${werewolfIndex} is already in center (>= ${playerCount})`);
+        }
+      }
+    }
+
     // Handle forced roles for debug mode
     if (this.config.forcedRoles && this.config.forcedRoles.size > 0) {
       for (const [playerIndex, forcedRoleName] of this.config.forcedRoles) {
@@ -847,17 +879,22 @@ export class Game implements IGameContext, INightActionGameState {
         this.players.get(id)!.eliminate();
       }
 
-      // Handle Hunter ability
+      // Handle Hunter ability (including Doppelganger who copied Hunter)
+      // Doppelganger only counts if they still have their Doppelganger card (wasn't swapped)
       for (const id of eliminatedIds) {
         const player = this.players.get(id)!;
-        if (player.currentRole.name === RoleName.HUNTER) {
+        const copiedRole = this.doppelgangerCopiedRoles.get(id);
+        const isHunter = player.currentRole.name === RoleName.HUNTER ||
+          (player.currentRole.name === RoleName.DOPPELGANGER && copiedRole === RoleName.HUNTER);
+        if (isHunter) {
           const hunterTarget = this.votes.get(id);
           if (hunterTarget && !eliminatedIds.includes(hunterTarget)) {
             this.players.get(hunterTarget)!.eliminate();
             eliminatedIds.push(hunterTarget);
             this.logAuditEvent('HUNTER_TRIGGERED', {
               hunterId: id,
-              targetId: hunterTarget
+              targetId: hunterTarget,
+              wasDoppelganger: copiedRole === RoleName.HUNTER
             });
           }
         }
@@ -1052,15 +1089,23 @@ export class Game implements IGameContext, INightActionGameState {
     // Note: Use getEffectiveTeam() to handle Doppelganger's team based on copied role
     const allPlayers: PlayerWinInfo[] = this.playerOrder.map(id => {
       const player = this.players.get(id)!;
+      const copiedRole = this.doppelgangerCopiedRoles.get(id);
       return {
         playerId: id,
         currentRole: player.currentRole.name,
         team: this.getEffectiveTeam(id),
-        isEliminated: !player.isAlive
+        isEliminated: !player.isAlive,
+        copiedRole
       };
     });
 
     const eliminatedPlayers = allPlayers.filter(p => p.isEliminated);
+
+    // Helper to check if a player is effectively a Tanner (actual or Doppelganger-Tanner)
+    // Doppelganger only counts if they still have their Doppelganger card (wasn't swapped)
+    const isTanner = (p: PlayerWinInfo) =>
+      p.currentRole === RoleName.TANNER ||
+      (p.currentRole === RoleName.DOPPELGANGER && p.copiedRole === RoleName.TANNER);
 
     const context: WinConditionContext = {
       allPlayers,
@@ -1071,9 +1116,7 @@ export class Game implements IGameContext, INightActionGameState {
       minionExistsAmongPlayers: allPlayers.some(
         p => p.currentRole === RoleName.MINION
       ),
-      tannerWasEliminated: eliminatedPlayers.some(
-        p => p.currentRole === RoleName.TANNER
-      )
+      tannerWasEliminated: eliminatedPlayers.some(isTanner)
     };
 
     // Evaluate all win conditions
