@@ -25,7 +25,8 @@
 
 import { AbstractAgent } from './Agent';
 import { NightActionContext, DayContext, VotingContext, NightActionResult } from '../types';
-import { RoleName } from '../enums';
+import { RoleName, Team } from '../enums';
+import { ROLE_TEAMS } from '../core/Role';
 
 /**
  * @summary Agent that makes random valid decisions.
@@ -51,6 +52,12 @@ export class RandomAgent extends AbstractAgent {
 
   /** Optional forced vote target (for debug/testing) */
   private forcedVoteTarget: string | null = null;
+
+  /** Known werewolves (populated for Werewolf and Minion roles) */
+  private knownWerewolves: string[] = [];
+
+  /** Starting role for this agent (set when receiving night info) */
+  private startingRole: RoleName | null = null;
 
   /**
    * @summary Creates a new RandomAgent.
@@ -206,17 +213,32 @@ export class RandomAgent extends AbstractAgent {
   }
 
   /**
-   * @summary Votes for a player (forced target or random).
+   * @summary Votes for a player (forced target or random, avoiding teammates).
    *
    * @param {VotingContext} context - Voting context
    *
-   * @returns {Promise<string>} Forced target if set and eligible, otherwise random
+   * @returns {Promise<string>} Forced target if set and eligible, otherwise random (avoiding werewolf teammates)
    */
   async vote(context: VotingContext): Promise<string> {
     // If forced vote target is set and is an eligible target, use it
     if (this.forcedVoteTarget && context.eligibleTargets.includes(this.forcedVoteTarget)) {
       return this.forcedVoteTarget;
     }
+
+    // If on Werewolf team (Werewolf or Minion), avoid voting for known werewolves
+    const team = this.startingRole ? ROLE_TEAMS[this.startingRole] : null;
+    if (team === Team.WEREWOLF && this.knownWerewolves.length > 0) {
+      const safeTargets = (context.eligibleTargets as string[]).filter(
+        id => !this.knownWerewolves.includes(id)
+      );
+
+      // If there are safe targets (non-werewolves), vote for one of them
+      if (safeTargets.length > 0) {
+        return this.randomChoice(safeTargets);
+      }
+      // Otherwise fall through to random (all targets are werewolves)
+    }
+
     return this.randomChoice(context.eligibleTargets as string[]);
   }
 
@@ -228,9 +250,19 @@ export class RandomAgent extends AbstractAgent {
   receiveNightInfo(info: NightActionResult): void {
     super.receiveNightInfo(info);
 
+    // Store the starting role
+    if (!this.startingRole) {
+      this.startingRole = info.roleName;
+    }
+
     // Werewolves and Minion should claim something else
     if (info.roleName === RoleName.WEREWOLF || info.roleName === RoleName.MINION) {
       this.claimedRole = RoleName.VILLAGER;
+    }
+
+    // Store known werewolves (for Werewolf and Minion)
+    if (info.info.werewolves && info.info.werewolves.length > 0) {
+      this.knownWerewolves = [...info.info.werewolves];
     }
   }
 
